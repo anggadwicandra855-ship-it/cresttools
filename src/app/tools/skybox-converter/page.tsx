@@ -231,7 +231,7 @@ export default function SkyboxConverterPage() {
   const [uploadProgress, setUploadProgress] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-        // V7 NATIVE MATRIX - EXTINCT SEAM LINES & PUZZLE ALIGNMENT FIX
+          // V8 GOD MODE - PURE MATHEMATICAL PIXEL MAPPER (ANTI-SEAM & PERFECT ALIGNMENT)
   const processEquirectangularImage = async (src: string) => {
     setIsProcessing(true);
     setPanoramaUrl(src);
@@ -244,74 +244,80 @@ export default function SkyboxConverterPage() {
         img.src = src;
       });
 
+      // Buat canvas mentah untuk membaca data pixel gambar panorama asli
+      const panoCanvas = document.createElement("canvas");
+      panoCanvas.width = img.width;
+      panoCanvas.height = img.height;
+      const panoCtx = panoCanvas.getContext("2d")!;
+      panoCtx.drawImage(img, 0, 0);
+      const panoData = panoCtx.getImageData(0, 0, img.width, img.height);
+
       const faceSize = 1024;
-      // Gunakan alpha false untuk memastikan background canvas padat (Anti Garis Transparan)
-      const renderer = new THREE.WebGLRenderer({
-        antialias: true,
-        preserveDrawingBuffer: true,
-        alpha: false
-      });
-      renderer.setSize(faceSize, faceSize);
-      renderer.outputColorSpace = THREE.SRGBColorSpace;
-
-      const scene = new THREE.Scene();
-      const texture = new THREE.Texture(img);
-      
-      // Kunci piksel di batas ujung (Anti Bleeding)
-      texture.wrapS = THREE.ClampToEdgeWrapping;
-      texture.wrapT = THREE.ClampToEdgeWrapping;
-      texture.minFilter = THREE.LinearFilter;
-      texture.magFilter = THREE.LinearFilter;
-      texture.generateMipmaps = false;
-      texture.needsUpdate = true;
-      texture.colorSpace = THREE.SRGBColorSpace;
-
-      // Menggunakan Sphere untuk menangkap proyeksi 360 dalam ruang
-      const sphereGeo = new THREE.SphereGeometry(10, 64, 64);
-      sphereGeo.scale(-1, 1, 1); // Membalik sphere ke dalam agar kamera di tengah bisa melihat
-      const sphereMat = new THREE.MeshBasicMaterial({ map: texture });
-      const mesh = new THREE.Mesh(sphereGeo, sphereMat);
-      scene.add(mesh);
-
-      // FIX MATRIKS ORIENTASI: Disesuaikan khusus untuk Engine Left-Handed Roblox Studio
-      const faces: { key: SkyboxFace; dir: THREE.Vector3; up: THREE.Vector3 }[] = [
-        { key: "ft", dir: new THREE.Vector3(0, 0, -1), up: new THREE.Vector3(0, 1, 0) },  // Depan
-        { key: "bk", dir: new THREE.Vector3(0, 0, 1),  up: new THREE.Vector3(0, 1, 0) },  // Belakang
-        { key: "rt", dir: new THREE.Vector3(1, 0, 0),  up: new THREE.Vector3(0, 1, 0) },  // Kanan
-        { key: "lf", dir: new THREE.Vector3(-1, 0, 0), up: new THREE.Vector3(0, 1, 0) },  // Kiri
-        { key: "up", dir: new THREE.Vector3(0, 1, 0),  up: new THREE.Vector3(0, 0, 1) },  // Langit (Dikunci ke Utara/Ft)
-        { key: "dn", dir: new THREE.Vector3(0, -1, 0), up: new THREE.Vector3(0, 0, -1) }, // Lantai (Dikunci ke Utara/Ft)
-      ];
-
       const results: Partial<Record<SkyboxFace, string>> = {};
+      const faces: SkyboxFace[] = ["ft", "bk", "lf", "rt", "up", "dn"];
 
-      for (const f of faces) {
-        // Trik Overlap Mikro 90.01 untuk menghilangkan jeda piksel antar kubus
-        const camera = new THREE.PerspectiveCamera(90.01, 1, 0.01, 100);
-        camera.position.set(0, 0, 0);
-        camera.lookAt(f.dir);
-        camera.up.copy(f.up);
-        camera.updateMatrixWorld();
-
-        renderer.render(scene, camera);
-
+      // Looping untuk memproses 6 sisi secara matematika presisi absolut
+      for (const face of faces) {
         const canvas = document.createElement("canvas");
         canvas.width = faceSize;
         canvas.height = faceSize;
         const ctx = canvas.getContext("2d")!;
-        
-        // Murni salin hasil render langsung tanpa manipulasi scale(-1, 1) yang merusak piksel!
-        ctx.imageSmoothingEnabled = false;
-        ctx.drawImage(renderer.domElement, 0, 0);
+        const imgData = ctx.createImageData(faceSize, faceSize);
 
-        results[f.key] = canvas.toDataURL("image/png");
+        for (let y = 0; y < faceSize; y++) {
+          for (let x = 0; x < faceSize; x++) {
+            // Transformasi koordinat canvas [0..1023] ke normal ruang [-1..1]
+            const nx = (x / (faceSize - 1)) * 2 - 1;
+            const ny = (y / (faceSize - 1)) * 2 - 1;
+
+            let vx = 0, vy = 0, vz = 0;
+
+            // MATRIKS SINKRONISASI KIBLAT ROBLOX CUBEMAP
+            switch (face) {
+              case "ft": vx = nx;  vy = -ny; vz = -1;  break; // Front
+              case "bk": vx = -nx; vy = -ny; vz = 1;   break; // Back
+              case "lf": vx = -1;  vy = -ny; vz = -nx; break; // Left
+              case "rt": vx = 1;   vy = -ny; vz = nx;  break; // Right
+              case "up": vx = nx;  vy = 1;   vz = ny;  break; // Up
+              case "dn": vx = nx;  vy = -1;  vz = -ny; break; // Down
+            }
+
+            // Hitung panjang vektor 3D ke ruang bola
+            const r = Math.sqrt(vx * vx + vy * vy + vz * vz);
+            vx /= r; vy /= r; vz /= r;
+
+            // Konversi Vektor 3D ke 2D Koordinat Spherical Equirectangular (U, V)
+            const phi = Math.atan2(vx, vz); // Arah horizontal
+            const theta = Math.asin(vy);    // Arah vertikal
+
+            // Petakan ke ukuran piksel gambar panorama asal
+            let u = (phi + Math.PI) / (2 * Math.PI);
+            let v = (Math.PI / 2 - theta) / Math.PI;
+
+            // Kunci koordinat agar tidak keluar dari batas piksel panorama (Strict Clamp)
+            let px = Math.min(Math.floor(u * img.width), img.width - 1);
+            let py = Math.min(Math.floor(v * img.height), img.height - 1);
+
+            // Ambil warna RGBA dari posisi panorama asli
+            const panoIdx = (py * img.width + px) * 4;
+            const rColor = panoData.data[panoIdx];
+            const gColor = panoData.data[panoIdx + 1];
+            const bColor = panoData.data[panoIdx + 2];
+            const aColor = panoData.data[panoIdx + 3];
+
+            // Tulis langsung ke buffer pixel canvas target
+            const destIdx = (y * faceSize + x) * 4;
+            imgData.data[destIdx] = rColor;
+            imgData.data[destIdx + 1] = gColor;
+            imgData.data[destIdx + 2] = bColor;
+            imgData.data[destIdx + 3] = aColor;
+          }
+        }
+
+        // Terapkan buffer pixel ke canvas sisi tersebut
+        ctx.putImageData(imgData, 0, 0);
+        results[face] = canvas.toDataURL("image/png");
       }
-
-      // Hancurkan resource biar RAM & GPU tidak meledak di browser user
-      sphereGeo.dispose();
-      sphereMat.dispose();
-      texture.dispose();
-      renderer.dispose();
 
       setSlicedFaces(results as Record<SkyboxFace, string>);
       setIsProcessing(false);
@@ -320,6 +326,7 @@ export default function SkyboxConverterPage() {
       setIsProcessing(false);
     }
   };
+
 
 
   useEffect(() => {
