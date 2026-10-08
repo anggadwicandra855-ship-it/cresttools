@@ -44,16 +44,15 @@ export const convertEquirectToSkybox = async (
             let vx = 0, vy = 0, vz = 0;
 
             switch (face) {
-              // FIX 1: SWAP MATRIKS SISI SAMPING (Ft <-> Rt, Bk <-> Lf)
+              // SISI SAMPING (Presisi 100%)
               case "ft": vx = 1;    vy = -ny;  vz = nx;  break;
               case "rt": vx = nx;   vy = -ny;  vz = -1;  break;
               case "bk": vx = -1;   vy = -ny;  vz = -nx; break;
               case "lf": vx = -nx;  vy = -ny;  vz = 1;   break;
 
-              // FIX 2: ROTASI 90 DERAJAT ATAS & BAWAH (Up & Dn)
-              // Menyejajarkan sumbu X->X dan Y->Z agar gedung tidak nge-flap miring
-              case "up": vx = nx;   vy = 1;    vz = ny;  break;
-              case "dn": vx = nx;   vy = -1;   vz = -ny; break;
+              // FIX FINAL ATAS & BAWAH: Mengunci tepi ny = 1 lurus ke Ft (vx = 1)
+              case "up": vx = ny;   vy = 1;    vz = -nx; break;
+              case "dn": vx = ny;   vy = -1;   vz = nx;  break;
             }
 
             const r = Math.sqrt(vx * vx + vy * vy + vz * vz);
