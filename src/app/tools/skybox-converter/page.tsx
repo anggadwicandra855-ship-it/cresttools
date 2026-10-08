@@ -173,6 +173,10 @@ function Skybox360Viewer({
     const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setSize(container.clientWidth, container.clientHeight);
     renderer.setPixelRatio(window.devicePixelRatio);
+    
+    // FIX UNTUK HP: Cegah browser scroll pas layar di-swipe
+    renderer.domElement.style.touchAction = "none";
+    
     container.innerHTML = "";
     container.appendChild(renderer.domElement);
 
@@ -180,6 +184,8 @@ function Skybox360Viewer({
     controls.enableZoom = true;
     controls.enablePan = false;
     controls.rotateSpeed = -0.5;
+    controls.enableDamping = true; // Biar swipe di HP makin mulus & responsif
+    controls.dampingFactor = 0.05;
     controls.autoRotate = autoRotate;
     controls.autoRotateSpeed = 0.5;
 
@@ -225,7 +231,7 @@ function Skybox360Viewer({
     <div
       id={containerId}
       ref={containerRef}
-      className="w-full h-full cursor-grab active:cursor-grabbing"
+      className="w-full h-full cursor-grab active:cursor-grabbing touch-none select-none"
     />
   );
 }
