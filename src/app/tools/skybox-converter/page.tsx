@@ -233,6 +233,7 @@ export default function SkyboxConverterPage() {
   const [uploadProgress, setUploadProgress] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // V5 ZERO-SEAM FINAL - Roblox Native Winding Fixed
   const processEquirectangularImage = (src: string) => {
     setIsProcessing(true);
     setPanoramaUrl(src);
@@ -258,7 +259,7 @@ export default function SkyboxConverterPage() {
       const getPixelBilinear = (u: number, v: number) => {
         let x = u * srcW - 0.5;
         let y = v * srcH - 0.5;
-        x = (x + srcW) % srcW;
+        x = (x + srcW) % srcW; // horizontal wrap
         y = Math.max(0, Math.min(srcH - 1.001, y));
 
         const x0 = Math.floor(x), y0 = Math.floor(y);
@@ -271,7 +272,7 @@ export default function SkyboxConverterPage() {
         const r = srcData[i00] * (1 - fx) * (1 - fy) + srcData[i10] * fx * (1 - fy) + srcData[i01] * (1 - fx) * fy + srcData[i11] * fx * fy;
         const g = srcData[i00 + 1] * (1 - fx) * (1 - fy) + srcData[i10 + 1] * fx * (1 - fy) + srcData[i01 + 1] * (1 - fx) * fy + srcData[i11 + 1] * fx * fy;
         const b = srcData[i00 + 2] * (1 - fx) * (1 - fy) + srcData[i10 + 2] * fx * (1 - fy) + srcData[i01 + 2] * (1 - fx) * fy + srcData[i11 + 2] * fx * fy;
-        
+
         return [r, g, b];
       };
 
@@ -291,20 +292,20 @@ export default function SkyboxConverterPage() {
             let vx = 0, vy = 0, vz = 0;
 
             switch (face) {
-              case "rt": vx = 1;   vy = -ny; vz = -nx; break;
-              case "lf": vx = -1;  vy = -ny; vz = nx;  break;
-              case "up": vx = nx;  vy = 1;   vz = ny;  break;
-              case "dn": vx = nx;  vy = -1;  vz = -ny; break;
-              case "ft": vx = -nx; vy = -ny; vz = 1;   break;
-              case "bk": vx = nx;  vy = -ny; vz = -1;  break;
+              case "ft": vx = nx;  vy = -ny; vz = -1; break; // Front = -Z
+              case "bk": vx = -nx; vy = -ny; vz = 1;  break; // Back = +Z
+              case "rt": vx = 1;   vy = -ny; vz = nx;  break; // Right = +X
+              case "lf": vx = -1;  vy = -ny; vz = -nx; break; // Left = -X
+              case "up": vx = nx;  vy = 1;   vz = -ny; break; // Up bottom edge = Front
+              case "dn": vx = nx;  vy = -1;  vz = ny;  break; // Down top edge = Front
             }
 
             const r = Math.sqrt(vx * vx + vy * vy + vz * vz);
             const theta = Math.atan2(vx, -vz);
             const phi = Math.acos(vy / r);
 
-            let u = (theta + Math.PI) / (2 * Math.PI);
-            let v = phi / Math.PI;
+            const u = (theta + Math.PI) / (2 * Math.PI);
+            const v = phi / Math.PI;
 
             const [pr, pg, pb] = getPixelBilinear(u, v);
             const outIdx = (y * faceSize + x) * 4;
