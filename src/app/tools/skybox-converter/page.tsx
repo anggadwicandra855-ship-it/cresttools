@@ -3,6 +3,7 @@
 import React, { useState, useRef, useEffect } from "react";
 import Link from "next/link";
 import Navbar from "@/components/layout/Navbar";
+import { convertEquirectToSkybox, SkyboxFace } from "@/utils/skyboxConverter";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import JSZip from "jszip";
@@ -232,117 +233,20 @@ export default function SkyboxConverterPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
             // V10 FINAL - ROBLOX NATIVE MATRIX + BILINEAR FILTERING (CREDIT: GROK AI LOGIC)
-  const processEquirectangularImage = async (src: string) => {
+    const processEquirectangularImage = async (src: string) => {
     setIsProcessing(true);
     setPanoramaUrl(src);
     try {
-      const img = new Image();
-      img.crossOrigin = "anonymous";
-      await new Promise((res, rej) => {
-        img.onload = res;
-        img.onerror = rej;
-        img.src = src;
-      });
-
-      const panoCanvas = document.createElement("canvas");
-      panoCanvas.width = img.width;
-      panoCanvas.height = img.height;
-      const panoCtx = panoCanvas.getContext("2d", { willReadFrequently: true })!;
-      panoCtx.drawImage(img, 0, 0);
-      const panoData = panoCtx.getImageData(0, 0, img.width, img.height);
-
-      const faceSize = 1024;
-      const results: Partial<Record<SkyboxFace, string>> = {};
-      const faces: SkyboxFace[] = ["ft", "bk", "lf", "rt", "up", "dn"];
-
-      for (const face of faces) {
-        const canvas = document.createElement("canvas");
-        canvas.width = faceSize;
-        canvas.height = faceSize;
-        const ctx = canvas.getContext("2d")!;
-        const imgData = ctx.createImageData(faceSize, faceSize);
-
-        for (let y = 0; y < faceSize; y++) {
-          for (let x = 0; x < faceSize; x++) {
-            const nx = (x / (faceSize - 1)) * 2 - 1;
-            const ny = (y / (faceSize - 1)) * 2 - 1;
-
-            let vx = 0, vy = 0, vz = 0;
-
-            // GROK'S ROBLOX NATIVE MAPPING (Orientasi Presisi 100%)
-            switch (face) {
-              case "ft": vx = nx;  vy = -ny; vz = -1;  break; // Front (-Z)
-              case "bk": vx = -nx; vy = -ny; vz = 1;   break; // Back (+Z)
-              case "lf": vx = -1;  vy = -ny; vz = -nx; break; // Left (-X)
-              case "rt": vx = 1;   vy = -ny; vz = nx;  break; // Right (+X)
-              case "up": vx = ny;  vy = 1;   vz = -nx; break; // Up (+Y) - 90° CW Fix
-              case "dn": vx = -ny; vy = -1;  vz = -nx; break; // Down (-Y) - 90° CCW Fix
-            }
-
-            const radius = Math.sqrt(vx * vx + vy * vy + vz * vz);
-            vx /= radius; vy /= radius; vz /= radius;
-
-            // Konversi ke koordinat spherical (mempertahankan -vz untuk Front)
-            const phi = Math.atan2(vx, -vz);
-            const theta = Math.asin(vy);
-
-            const u = (phi + Math.PI) / (2 * Math.PI);
-            const v = (Math.PI / 2 - theta) / Math.PI;
-
-            // GROK'S BILINEAR FILTERING (Mencegah patahan 1 pixel)
-            const uClamped = Math.max(0, Math.min(u, 1 - 1e-6));
-            const vClamped = Math.max(0, Math.min(v, 1 - 1e-6));
-
-            const px = uClamped * (img.width - 1);
-            const py = vClamped * (img.height - 1);
-
-            const x0 = Math.floor(px);
-            const y0 = Math.floor(py);
-            const x1 = Math.min(x0 + 1, img.width - 1);
-            const y1 = Math.min(y0 + 1, img.height - 1);
-
-            const fx = px - x0;
-            const fy = py - y0;
-
-            const getPixel = (px: number, py: number) => {
-              const i = (py * img.width + px) * 4;
-              return [
-                panoData.data[i],
-                panoData.data[i + 1],
-                panoData.data[i + 2],
-                panoData.data[i + 3],
-              ];
-            };
-
-            const c00 = getPixel(x0, y0);
-            const c10 = getPixel(x1, y0);
-            const c01 = getPixel(x0, y1);
-            const c11 = getPixel(x1, y1);
-
-            const destIdx = (y * faceSize + x) * 4;
-            
-            // Rumus Blending Warna
-            for(let c = 0; c < 4; c++) {
-               imgData.data[destIdx + c] = 
-                 c00[c] * (1 - fx) * (1 - fy) + 
-                 c10[c] * fx * (1 - fy) + 
-                 c01[c] * (1 - fx) * fy + 
-                 c11[c] * fx * fy;
-            }
-          }
-        }
-
-        ctx.putImageData(imgData, 0, 0);
-        results[face] = canvas.toDataURL("image/png");
-      }
-
-      setSlicedFaces(results as Record<SkyboxFace, string>);
-      setIsProcessing(false);
+      // Panggil engine matematika terpisah kita
+      const slices = await convertEquirectToSkybox(src, 1024);
+      setSlicedFaces(slices);
     } catch (e) {
-      console.error(e);
+      console.error("Gagal mengolah gambar skybox:", e);
+    } finally {
       setIsProcessing(false);
     }
   };
+
 
   useEffect(() => {
     getAndClearIndexedDB().then((b) => {
