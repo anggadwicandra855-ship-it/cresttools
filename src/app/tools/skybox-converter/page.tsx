@@ -231,7 +231,7 @@ export default function SkyboxConverterPage() {
   const [uploadProgress, setUploadProgress] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // V6 PAMUNGKAS - GPU Cube Capture (Anti Lipatan Roblox Native)
+    // V6 PAMUNGKAS REMIXED - GPU Cube Capture (ZERO SEAM LINES FIX)
   const processEquirectangularImage = async (src: string) => {
     setIsProcessing(true);
     setPanoramaUrl(src);
@@ -248,19 +248,29 @@ export default function SkyboxConverterPage() {
       const renderer = new THREE.WebGLRenderer({
         antialias: true,
         preserveDrawingBuffer: true,
+        alpha: false
       });
       renderer.setSize(faceSize, faceSize);
       renderer.outputColorSpace = THREE.SRGBColorSpace;
 
       const scene = new THREE.Scene();
       const texture = new THREE.Texture(img);
+      
+      // CRITICAL ROBLOX FIX: Kunci piksel di batas ujung (Anti Bleeding / Zero Seams)
+      texture.wrapS = THREE.ClampToEdgeWrapping;
+      texture.wrapT = THREE.ClampToEdgeWrapping;
+      texture.minFilter = THREE.LinearFilter;
+      texture.magFilter = THREE.LinearFilter;
+      texture.generateMipmaps = false;
+      
       texture.needsUpdate = true;
       texture.colorSpace = THREE.SRGBColorSpace;
 
       const sphereGeo = new THREE.SphereGeometry(10, 64, 64);
       sphereGeo.scale(-1, 1, 1);
       const sphereMat = new THREE.MeshBasicMaterial({ map: texture });
-      scene.add(new THREE.Mesh(sphereGeo, sphereMat));
+      const mesh = new THREE.Mesh(sphereGeo, sphereMat);
+      scene.add(mesh);
 
       const faces: { key: SkyboxFace; dir: THREE.Vector3; up: THREE.Vector3 }[] = [
         { key: "ft", dir: new THREE.Vector3(0, 0, -1), up: new THREE.Vector3(0, 1, 0) },
@@ -274,7 +284,7 @@ export default function SkyboxConverterPage() {
       const results: Partial<Record<SkyboxFace, string>> = {};
 
       for (const f of faces) {
-        const camera = new THREE.PerspectiveCamera(90, 1, 0.1, 100);
+        const camera = new THREE.PerspectiveCamera(90, 1, 0.01, 100);
         camera.position.set(0, 0, 0);
         camera.lookAt(f.dir);
         camera.up.copy(f.up);
@@ -286,9 +296,11 @@ export default function SkyboxConverterPage() {
         canvas.width = faceSize;
         canvas.height = faceSize;
         const ctx = canvas.getContext("2d")!;
+        
+        // Pindahkan buffer gambar WebGL ke canvas 2D
         ctx.drawImage(renderer.domElement, 0, 0);
 
-        // ROBLOX FIX: Roblox flips Bk and Lf horizontally internally
+        // ROBLOX NATIVE MIRROR MATRIX RETENTION (Aman Tidak Berubah)
         if (f.key === "bk" || f.key === "lf") {
           const tempCanvas = document.createElement("canvas");
           tempCanvas.width = faceSize;
@@ -303,12 +315,18 @@ export default function SkyboxConverterPage() {
         }
       }
 
+      // Bersihkan seluruh resource WebGL setelah proses looping selesai total
+      sphereGeo.dispose();
+      sphereMat.dispose();
+      texture.dispose();
       renderer.dispose();
+
       setSlicedFaces(results as Record<SkyboxFace, string>);
+      setIsProcessing(false);
     } catch (e) {
       console.error(e);
+      setIsProcessing(false);
     }
-    setIsProcessing(false);
   };
 
   useEffect(() => {
