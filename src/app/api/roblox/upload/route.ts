@@ -50,10 +50,46 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Balikan Operation / Asset ID
+    // 1. Cek apakah Asset ID numerik sudah ada di objek response langsung
+    let finalAssetId =
+      data.response?.assetId || data.response?.path?.split("/").pop();
+
+    // 2. Jika belum ada dan yang dikembalikan adalah Operation ID, lakukan polling ke Roblox
+    if (!finalAssetId && data.path && data.path.startsWith("operations/")) {
+      const pollUrl = `https://apis.roblox.com/assets/v1/${data.path}`;
+
+      for (let i = 0; i < 6; i++) {
+        // Tunggu 800ms sebelum cek status operation
+        await new Promise((resolve) => setTimeout(resolve, 800));
+
+        const pollRes = await fetch(pollUrl, {
+          method: "GET",
+          headers: { "x-api-key": apiKey },
+        });
+
+        if (pollRes.ok) {
+          const pollData = await pollRes.json();
+          if (pollData.done && pollData.response) {
+            finalAssetId =
+              pollData.response.assetId ||
+              pollData.response.path?.split("/").pop();
+            break;
+          }
+        }
+      }
+    }
+
+    if (!finalAssetId) {
+      return NextResponse.json(
+        { error: "Gagal mengambil Asset ID numerik dari Roblox." },
+        { status: 500 }
+      );
+    }
+
+    // Balikan Asset ID Murni (Angka)
     return NextResponse.json({
       success: true,
-      assetId: data.assetId || data.path?.split("/").pop(),
+      assetId: finalAssetId,
       raw: data,
     });
   } catch (err: any) {
