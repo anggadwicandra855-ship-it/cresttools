@@ -23,7 +23,6 @@ import {
   CheckCircle2,
   CloudUpload,
   Settings,
-  AlertCircle,
 } from "lucide-react";
 
 interface SkyboxPreset {
@@ -119,7 +118,6 @@ const getAndClearIndexedDB = (): Promise<string | null> => {
   });
 };
 
-// Helper konversi Base64 Data URL ke Blob/File
 const dataURItoBlob = (dataURI: string) => {
   const byteString = atob(dataURI.split(",")[1]);
   const mimeString = dataURI.split(",")[0].split(":")[1].split(";")[0];
@@ -233,97 +231,84 @@ export default function SkyboxConverterPage() {
   const [uploadProgress, setUploadProgress] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // V5 ZERO-SEAM FINAL - Roblox Native Winding Fixed
-  const processEquirectangularImage = (src: string) => {
+  // V6 PAMUNGKAS - GPU Cube Capture (Anti Lipatan Roblox Native)
+  const processEquirectangularImage = async (src: string) => {
     setIsProcessing(true);
     setPanoramaUrl(src);
-    const img = new Image();
-    img.crossOrigin = "anonymous";
-    img.onload = () => {
+    try {
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+      await new Promise((res, rej) => {
+        img.onload = res;
+        img.onerror = rej;
+        img.src = src;
+      });
+
       const faceSize = 1024;
-      const faces: SkyboxFace[] = ["rt", "lf", "up", "dn", "ft", "bk"];
+      const renderer = new THREE.WebGLRenderer({
+        antialias: true,
+        preserveDrawingBuffer: true,
+      });
+      renderer.setSize(faceSize, faceSize);
+      renderer.outputColorSpace = THREE.SRGBColorSpace;
+
+      const scene = new THREE.Scene();
+      const texture = new THREE.Texture(img);
+      texture.needsUpdate = true;
+      texture.colorSpace = THREE.SRGBColorSpace;
+
+      const sphereGeo = new THREE.SphereGeometry(10, 64, 64);
+      sphereGeo.scale(-1, 1, 1);
+      const sphereMat = new THREE.MeshBasicMaterial({ map: texture });
+      scene.add(new THREE.Mesh(sphereGeo, sphereMat));
+
+      const faces: { key: SkyboxFace; dir: THREE.Vector3; up: THREE.Vector3 }[] = [
+        { key: "ft", dir: new THREE.Vector3(0, 0, -1), up: new THREE.Vector3(0, 1, 0) },
+        { key: "bk", dir: new THREE.Vector3(0, 0, 1),  up: new THREE.Vector3(0, 1, 0) },
+        { key: "rt", dir: new THREE.Vector3(1, 0, 0),  up: new THREE.Vector3(0, 1, 0) },
+        { key: "lf", dir: new THREE.Vector3(-1, 0, 0), up: new THREE.Vector3(0, 1, 0) },
+        { key: "up", dir: new THREE.Vector3(0, 1, 0),  up: new THREE.Vector3(0, 0, -1) },
+        { key: "dn", dir: new THREE.Vector3(0, -1, 0), up: new THREE.Vector3(0, 0, 1) },
+      ];
+
       const results: Partial<Record<SkyboxFace, string>> = {};
 
-      const inCanvas = document.createElement("canvas");
-      inCanvas.width = img.width;
-      inCanvas.height = img.height;
-      const inCtx = inCanvas.getContext("2d", { willReadFrequently: true });
-      if (!inCtx) return;
+      for (const f of faces) {
+        const camera = new THREE.PerspectiveCamera(90, 1, 0.1, 100);
+        camera.position.set(0, 0, 0);
+        camera.lookAt(f.dir);
+        camera.up.copy(f.up);
+        camera.updateMatrixWorld();
 
-      inCtx.drawImage(img, 0, 0);
-      const inImg = inCtx.getImageData(0, 0, img.width, img.height);
-      const srcData = inImg.data;
-      const srcW = img.width;
-      const srcH = img.height;
+        renderer.render(scene, camera);
 
-      const getPixelBilinear = (u: number, v: number) => {
-        let x = u * srcW - 0.5;
-        let y = v * srcH - 0.5;
-        x = (x + srcW) % srcW; // horizontal wrap
-        y = Math.max(0, Math.min(srcH - 1.001, y));
-
-        const x0 = Math.floor(x), y0 = Math.floor(y);
-        const x1 = (x0 + 1) % srcW, y1 = Math.min(srcH - 1, y0 + 1);
-        const fx = x - x0, fy = y - y0;
-
-        const i00 = (y0 * srcW + x0) * 4, i10 = (y0 * srcW + x1) * 4;
-        const i01 = (y1 * srcW + x0) * 4, i11 = (y1 * srcW + x1) * 4;
-
-        const r = srcData[i00] * (1 - fx) * (1 - fy) + srcData[i10] * fx * (1 - fy) + srcData[i01] * (1 - fx) * fy + srcData[i11] * fx * fy;
-        const g = srcData[i00 + 1] * (1 - fx) * (1 - fy) + srcData[i10 + 1] * fx * (1 - fy) + srcData[i01 + 1] * (1 - fx) * fy + srcData[i11 + 1] * fx * fy;
-        const b = srcData[i00 + 2] * (1 - fx) * (1 - fy) + srcData[i10 + 2] * fx * (1 - fy) + srcData[i01 + 2] * (1 - fx) * fy + srcData[i11 + 2] * fx * fy;
-
-        return [r, g, b];
-      };
-
-      faces.forEach((face) => {
         const canvas = document.createElement("canvas");
         canvas.width = faceSize;
         canvas.height = faceSize;
-        const ctx = canvas.getContext("2d");
-        if (!ctx) return;
+        const ctx = canvas.getContext("2d")!;
+        ctx.drawImage(renderer.domElement, 0, 0);
 
-        const outImg = ctx.createImageData(faceSize, faceSize);
-
-        for (let y = 0; y < faceSize; y++) {
-          for (let x = 0; x < faceSize; x++) {
-            const nx = ((x + 0.5) / faceSize) * 2 - 1;
-            const ny = ((y + 0.5) / faceSize) * 2 - 1;
-            let vx = 0, vy = 0, vz = 0;
-
-            switch (face) {
-              case "ft": vx = nx;  vy = -ny; vz = -1; break; // Front = -Z
-              case "bk": vx = -nx; vy = -ny; vz = 1;  break; // Back = +Z
-              case "rt": vx = 1;   vy = -ny; vz = nx;  break; // Right = +X
-              case "lf": vx = -1;  vy = -ny; vz = -nx; break; // Left = -X
-              case "up": vx = nx;  vy = 1;   vz = -ny; break; // Up bottom edge = Front
-              case "dn": vx = nx;  vy = -1;  vz = ny;  break; // Down top edge = Front
-            }
-
-            const r = Math.sqrt(vx * vx + vy * vy + vz * vz);
-            const theta = Math.atan2(vx, -vz);
-            const phi = Math.acos(vy / r);
-
-            const u = (theta + Math.PI) / (2 * Math.PI);
-            const v = phi / Math.PI;
-
-            const [pr, pg, pb] = getPixelBilinear(u, v);
-            const outIdx = (y * faceSize + x) * 4;
-
-            outImg.data[outIdx] = pr;
-            outImg.data[outIdx + 1] = pg;
-            outImg.data[outIdx + 2] = pb;
-            outImg.data[outIdx + 3] = 255;
-          }
+        // ROBLOX FIX: Roblox flips Bk and Lf horizontally internally
+        if (f.key === "bk" || f.key === "lf") {
+          const tempCanvas = document.createElement("canvas");
+          tempCanvas.width = faceSize;
+          tempCanvas.height = faceSize;
+          const tCtx = tempCanvas.getContext("2d")!;
+          tCtx.translate(faceSize, 0);
+          tCtx.scale(-1, 1);
+          tCtx.drawImage(canvas, 0, 0);
+          results[f.key] = tempCanvas.toDataURL("image/png");
+        } else {
+          results[f.key] = canvas.toDataURL("image/png");
         }
-        ctx.putImageData(outImg, 0, 0);
-        results[face] = canvas.toDataURL("image/png");
-      });
+      }
 
+      renderer.dispose();
       setSlicedFaces(results as Record<SkyboxFace, string>);
-      setIsProcessing(false);
-    };
-    img.src = src;
+    } catch (e) {
+      console.error(e);
+    }
+    setIsProcessing(false);
   };
 
   useEffect(() => {
@@ -332,7 +317,6 @@ export default function SkyboxConverterPage() {
     });
   }, []);
 
-  // AUTO UPLOAD LOGIC KE ROBLOX OPEN CLOUD
   const handleAutoUpload = async () => {
     if (!slicedFaces) return;
 
@@ -402,14 +386,14 @@ export default function SkyboxConverterPage() {
       folder?.file(`Skybox${key.toUpperCase()}.png`, base64, { base64: true });
     });
 
-    const luaTemplate = `-- Generated by CrestTools V4\nlocal sky = Instance.new("Sky")\nsky.Name = "CustomSky"\nsky.SkyboxBk = "rbxassetid://${robloxIds.bk || "YOUR_BK_ID"}"\nsky.SkyboxFt = "rbxassetid://${robloxIds.ft || "YOUR_FT_ID"}"\nsky.SkyboxLf = "rbxassetid://${robloxIds.lf || "YOUR_LF_ID"}"\nsky.SkyboxRt = "rbxassetid://${robloxIds.rt || "YOUR_RT_ID"}"\nsky.SkyboxUp = "rbxassetid://${robloxIds.up || "YOUR_UP_ID"}"\nsky.SkyboxDn = "rbxassetid://${robloxIds.dn || "YOUR_DN_ID"}"\nsky.Parent = game.Lighting\n`;
+    const luaTemplate = `-- Generated by CrestTools V6\nlocal sky = Instance.new("Sky")\nsky.Name = "CustomSky"\nsky.SkyboxBk = "rbxassetid://${robloxIds.bk || "YOUR_BK_ID"}"\nsky.SkyboxFt = "rbxassetid://${robloxIds.ft || "YOUR_FT_ID"}"\nsky.SkyboxLf = "rbxassetid://${robloxIds.lf || "YOUR_LF_ID"}"\nsky.SkyboxRt = "rbxassetid://${robloxIds.rt || "YOUR_RT_ID"}"\nsky.SkyboxUp = "rbxassetid://${robloxIds.up || "YOUR_UP_ID"}"\nsky.SkyboxDn = "rbxassetid://${robloxIds.dn || "YOUR_DN_ID"}"\nsky.Parent = game.Lighting\n`;
     folder?.file("SkyboxScript.lua", luaTemplate);
 
     const content = await zip.generateAsync({ type: "blob" });
     const url = URL.createObjectURL(content);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `crest-skybox-v4-${Date.now()}.zip`;
+    a.download = `crest-skybox-v6-${Date.now()}.zip`;
     a.click();
   };
 
@@ -454,11 +438,11 @@ sky.Parent = game.Lighting`;
             <h1 className="text-3xl font-bold">
               Skybox Converter 3D{" "}
               <span className="text-[10px] align-super px-2.5 py-1 rounded-md bg-emerald-500 text-black font-extrabold tracking-wider">
-                V4 CLOUD PIPELINE
+                V6 GPU CAPTURE
               </span>
             </h1>
             <p className="text-sm text-slate-400">
-              Roblox Native Matrix + Auto-Upload Direct Open Cloud API
+              Roblox Native GPU Mirror Matrix + Direct Open Cloud Upload
             </p>
           </div>
         </div>
@@ -491,7 +475,7 @@ sky.Parent = game.Lighting`;
             {isProcessing && (
               <div className="mt-3 flex items-center gap-2 text-xs text-emerald-400 font-mono">
                 <Loader2 className="w-4 h-4 animate-spin" />
-                Processing V4 Zero-Seam Slices...
+                Capturing V6 GPU Seamless Cube...
               </div>
             )}
 
@@ -501,7 +485,7 @@ sky.Parent = game.Lighting`;
                 AUTO-UPLOAD SYSTEM READY
               </p>
               <p className="text-[11px] text-emerald-200/70 mt-1 leading-relaxed">
-                Potongan gambar bisa langsung terunggah ke Roblox Creator Studio tanpa perlu copy-paste file lagi.
+                Potongan gambar diproses langsung via WebGL GPU untuk menjamin zero-seam di Roblox Studio.
               </p>
             </div>
           </div>
