@@ -168,7 +168,7 @@ function Skybox360Viewer({
     controls.autoRotateSpeed = 0.5;
 
     const loader = new THREE.TextureLoader();
-    loader.load(textureUrl, (texture) => {
+    loader.load(textureUrl, (texture: any) => {
       texture.colorSpace = THREE.SRGBColorSpace;
       const geometry = new THREE.SphereGeometry(500, 64, 64);
       geometry.scale(-1, 1, 1);
