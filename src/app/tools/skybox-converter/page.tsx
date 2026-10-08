@@ -231,7 +231,7 @@ export default function SkyboxConverterPage() {
   const [uploadProgress, setUploadProgress] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-          // V8 GOD MODE - PURE MATHEMATICAL PIXEL MAPPER (ANTI-SEAM & PERFECT ALIGNMENT)
+            // V10 FINAL - ROBLOX NATIVE MATRIX + BILINEAR FILTERING (CREDIT: GROK AI LOGIC)
   const processEquirectangularImage = async (src: string) => {
     setIsProcessing(true);
     setPanoramaUrl(src);
@@ -244,11 +244,10 @@ export default function SkyboxConverterPage() {
         img.src = src;
       });
 
-      // Buat canvas mentah untuk membaca data pixel gambar panorama asli
       const panoCanvas = document.createElement("canvas");
       panoCanvas.width = img.width;
       panoCanvas.height = img.height;
-      const panoCtx = panoCanvas.getContext("2d")!;
+      const panoCtx = panoCanvas.getContext("2d", { willReadFrequently: true })!;
       panoCtx.drawImage(img, 0, 0);
       const panoData = panoCtx.getImageData(0, 0, img.width, img.height);
 
@@ -256,7 +255,6 @@ export default function SkyboxConverterPage() {
       const results: Partial<Record<SkyboxFace, string>> = {};
       const faces: SkyboxFace[] = ["ft", "bk", "lf", "rt", "up", "dn"];
 
-      // Looping untuk memproses 6 sisi secara matematika presisi absolut
       for (const face of faces) {
         const canvas = document.createElement("canvas");
         canvas.width = faceSize;
@@ -266,55 +264,74 @@ export default function SkyboxConverterPage() {
 
         for (let y = 0; y < faceSize; y++) {
           for (let x = 0; x < faceSize; x++) {
-            // Transformasi koordinat canvas [0..1023] ke normal ruang [-1..1]
             const nx = (x / (faceSize - 1)) * 2 - 1;
             const ny = (y / (faceSize - 1)) * 2 - 1;
 
             let vx = 0, vy = 0, vz = 0;
 
-            // MATRIKS SINKRONISASI KIBLAT ROBLOX CUBEMAP
+            // GROK'S ROBLOX NATIVE MAPPING (Orientasi Presisi 100%)
             switch (face) {
-              case "ft": vx = nx;  vy = -ny; vz = -1;  break; // Front
-              case "bk": vx = -nx; vy = -ny; vz = 1;   break; // Back
-              case "lf": vx = -1;  vy = -ny; vz = -nx; break; // Left
-              case "rt": vx = 1;   vy = -ny; vz = nx;  break; // Right
-              case "up": vx = nx;  vy = 1;   vz = ny;  break; // Up
-              case "dn": vx = nx;  vy = -1;  vz = -ny; break; // Down
+              case "ft": vx = nx;  vy = -ny; vz = -1;  break; // Front (-Z)
+              case "bk": vx = -nx; vy = -ny; vz = 1;   break; // Back (+Z)
+              case "lf": vx = -1;  vy = -ny; vz = -nx; break; // Left (-X)
+              case "rt": vx = 1;   vy = -ny; vz = nx;  break; // Right (+X)
+              case "up": vx = ny;  vy = 1;   vz = -nx; break; // Up (+Y) - 90° CW Fix
+              case "dn": vx = -ny; vy = -1;  vz = -nx; break; // Down (-Y) - 90° CCW Fix
             }
 
-            // Hitung panjang vektor 3D ke ruang bola
-            const r = Math.sqrt(vx * vx + vy * vy + vz * vz);
-            vx /= r; vy /= r; vz /= r;
+            const radius = Math.sqrt(vx * vx + vy * vy + vz * vz);
+            vx /= radius; vy /= radius; vz /= radius;
 
-            // Konversi Vektor 3D ke 2D Koordinat Spherical Equirectangular (U, V)
-            const phi = Math.atan2(vx, vz); // Arah horizontal
-            const theta = Math.asin(vy);    // Arah vertikal
+            // Konversi ke koordinat spherical (mempertahankan -vz untuk Front)
+            const phi = Math.atan2(vx, -vz);
+            const theta = Math.asin(vy);
 
-            // Petakan ke ukuran piksel gambar panorama asal
-            let u = (phi + Math.PI) / (2 * Math.PI);
-            let v = (Math.PI / 2 - theta) / Math.PI;
+            const u = (phi + Math.PI) / (2 * Math.PI);
+            const v = (Math.PI / 2 - theta) / Math.PI;
 
-            // Kunci koordinat agar tidak keluar dari batas piksel panorama (Strict Clamp)
-            let px = Math.min(Math.floor(u * img.width), img.width - 1);
-            let py = Math.min(Math.floor(v * img.height), img.height - 1);
+            // GROK'S BILINEAR FILTERING (Mencegah patahan 1 pixel)
+            const uClamped = Math.max(0, Math.min(u, 1 - 1e-6));
+            const vClamped = Math.max(0, Math.min(v, 1 - 1e-6));
 
-            // Ambil warna RGBA dari posisi panorama asli
-            const panoIdx = (py * img.width + px) * 4;
-            const rColor = panoData.data[panoIdx];
-            const gColor = panoData.data[panoIdx + 1];
-            const bColor = panoData.data[panoIdx + 2];
-            const aColor = panoData.data[panoIdx + 3];
+            const px = uClamped * (img.width - 1);
+            const py = vClamped * (img.height - 1);
 
-            // Tulis langsung ke buffer pixel canvas target
+            const x0 = Math.floor(px);
+            const y0 = Math.floor(py);
+            const x1 = Math.min(x0 + 1, img.width - 1);
+            const y1 = Math.min(y0 + 1, img.height - 1);
+
+            const fx = px - x0;
+            const fy = py - y0;
+
+            const getPixel = (px: number, py: number) => {
+              const i = (py * img.width + px) * 4;
+              return [
+                panoData.data[i],
+                panoData.data[i + 1],
+                panoData.data[i + 2],
+                panoData.data[i + 3],
+              ];
+            };
+
+            const c00 = getPixel(x0, y0);
+            const c10 = getPixel(x1, y0);
+            const c01 = getPixel(x0, y1);
+            const c11 = getPixel(x1, y1);
+
             const destIdx = (y * faceSize + x) * 4;
-            imgData.data[destIdx] = rColor;
-            imgData.data[destIdx + 1] = gColor;
-            imgData.data[destIdx + 2] = bColor;
-            imgData.data[destIdx + 3] = aColor;
+            
+            // Rumus Blending Warna
+            for(let c = 0; c < 4; c++) {
+               imgData.data[destIdx + c] = 
+                 c00[c] * (1 - fx) * (1 - fy) + 
+                 c10[c] * fx * (1 - fy) + 
+                 c01[c] * (1 - fx) * fy + 
+                 c11[c] * fx * fy;
+            }
           }
         }
 
-        // Terapkan buffer pixel ke canvas sisi tersebut
         ctx.putImageData(imgData, 0, 0);
         results[face] = canvas.toDataURL("image/png");
       }
@@ -326,8 +343,6 @@ export default function SkyboxConverterPage() {
       setIsProcessing(false);
     }
   };
-
-
 
   useEffect(() => {
     getAndClearIndexedDB().then((b) => {
