@@ -231,7 +231,7 @@ export default function SkyboxConverterPage() {
   const [uploadProgress, setUploadProgress] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-      // V6.1 ULTRA REFINED - ZERO SEAM ENGINE FOR ROBLOX STUDIO
+        // V7 NATIVE MATRIX - EXTINCT SEAM LINES & PUZZLE ALIGNMENT FIX
   const processEquirectangularImage = async (src: string) => {
     setIsProcessing(true);
     setPanoramaUrl(src);
@@ -245,19 +245,19 @@ export default function SkyboxConverterPage() {
       });
 
       const faceSize = 1024;
+      // Gunakan alpha false untuk memastikan background canvas padat (Anti Garis Transparan)
       const renderer = new THREE.WebGLRenderer({
         antialias: true,
         preserveDrawingBuffer: true,
-        alpha: false,
-        powerPreference: "high-performance"
+        alpha: false
       });
       renderer.setSize(faceSize, faceSize);
       renderer.outputColorSpace = THREE.SRGBColorSpace;
 
       const scene = new THREE.Scene();
-      
-      // Menggunakan WebGLRenderTarget untuk tangkapan piksel mentah yang lebih presisi
       const texture = new THREE.Texture(img);
+      
+      // Kunci piksel di batas ujung (Anti Bleeding)
       texture.wrapS = THREE.ClampToEdgeWrapping;
       texture.wrapT = THREE.ClampToEdgeWrapping;
       texture.minFilter = THREE.LinearFilter;
@@ -266,26 +266,28 @@ export default function SkyboxConverterPage() {
       texture.needsUpdate = true;
       texture.colorSpace = THREE.SRGBColorSpace;
 
-      const sphereGeo = new THREE.SphereGeometry(20, 64, 64);
-      sphereGeo.scale(-1, 1, 1);
+      // Menggunakan Sphere untuk menangkap proyeksi 360 dalam ruang
+      const sphereGeo = new THREE.SphereGeometry(10, 64, 64);
+      sphereGeo.scale(-1, 1, 1); // Membalik sphere ke dalam agar kamera di tengah bisa melihat
       const sphereMat = new THREE.MeshBasicMaterial({ map: texture });
       const mesh = new THREE.Mesh(sphereGeo, sphereMat);
       scene.add(mesh);
 
+      // FIX MATRIKS ORIENTASI: Disesuaikan khusus untuk Engine Left-Handed Roblox Studio
       const faces: { key: SkyboxFace; dir: THREE.Vector3; up: THREE.Vector3 }[] = [
-        { key: "ft", dir: new THREE.Vector3(0, 0, -1), up: new THREE.Vector3(0, 1, 0) },
-        { key: "bk", dir: new THREE.Vector3(0, 0, 1),  up: new THREE.Vector3(0, 1, 0) },
-        { key: "rt", dir: new THREE.Vector3(1, 0, 0),  up: new THREE.Vector3(0, 1, 0) },
-        { key: "lf", dir: new THREE.Vector3(-1, 0, 0), up: new THREE.Vector3(0, 1, 0) },
-        { key: "up", dir: new THREE.Vector3(0, 1, 0),  up: new THREE.Vector3(0, 0, -1) },
-        { key: "dn", dir: new THREE.Vector3(0, -1, 0), up: new THREE.Vector3(0, 0, 1) },
+        { key: "ft", dir: new THREE.Vector3(0, 0, -1), up: new THREE.Vector3(0, 1, 0) },  // Depan
+        { key: "bk", dir: new THREE.Vector3(0, 0, 1),  up: new THREE.Vector3(0, 1, 0) },  // Belakang
+        { key: "rt", dir: new THREE.Vector3(1, 0, 0),  up: new THREE.Vector3(0, 1, 0) },  // Kanan
+        { key: "lf", dir: new THREE.Vector3(-1, 0, 0), up: new THREE.Vector3(0, 1, 0) },  // Kiri
+        { key: "up", dir: new THREE.Vector3(0, 1, 0),  up: new THREE.Vector3(0, 0, 1) },  // Langit (Dikunci ke Utara/Ft)
+        { key: "dn", dir: new THREE.Vector3(0, -1, 0), up: new THREE.Vector3(0, 0, -1) }, // Lantai (Dikunci ke Utara/Ft)
       ];
 
       const results: Partial<Record<SkyboxFace, string>> = {};
 
       for (const f of faces) {
-        // Trik Master: Menggunakan FOV 90.02 untuk memaksakan overlap mikro (Anti Gunting Roblox)
-        const camera = new THREE.PerspectiveCamera(90.02, 1, 0.05, 100);
+        // Trik Overlap Mikro 90.01 untuk menghilangkan jeda piksel antar kubus
+        const camera = new THREE.PerspectiveCamera(90.01, 1, 0.01, 100);
         camera.position.set(0, 0, 0);
         camera.lookAt(f.dir);
         camera.up.copy(f.up);
@@ -298,27 +300,14 @@ export default function SkyboxConverterPage() {
         canvas.height = faceSize;
         const ctx = canvas.getContext("2d")!;
         
-        // Matikan image smoothing pada canvas 2D biar piksel pinggirannya tajam murni
+        // Murni salin hasil render langsung tanpa manipulasi scale(-1, 1) yang merusak piksel!
         ctx.imageSmoothingEnabled = false;
         ctx.drawImage(renderer.domElement, 0, 0);
 
-        // ROBLOX NATIVE MIRROR MATRIX RETENTION (Pertahankan logika asli lu)
-        if (f.key === "bk" || f.key === "lf") {
-          const tempCanvas = document.createElement("canvas");
-          tempCanvas.width = faceSize;
-          tempCanvas.height = faceSize;
-          const tCtx = tempCanvas.getContext("2d")!;
-          tCtx.imageSmoothingEnabled = false;
-          tCtx.translate(faceSize, 0);
-          tCtx.scale(-1, 1);
-          tCtx.drawImage(canvas, 0, 0);
-          results[f.key] = tempCanvas.toDataURL("image/png");
-        } else {
-          results[f.key] = canvas.toDataURL("image/png");
-        }
+        results[f.key] = canvas.toDataURL("image/png");
       }
 
-      // Bersihkan memory GPU secara total
+      // Hancurkan resource biar RAM & GPU tidak meledak di browser user
       sphereGeo.dispose();
       sphereMat.dispose();
       texture.dispose();
@@ -331,6 +320,7 @@ export default function SkyboxConverterPage() {
       setIsProcessing(false);
     }
   };
+
 
   useEffect(() => {
     getAndClearIndexedDB().then((b) => {
