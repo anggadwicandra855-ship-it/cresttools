@@ -192,14 +192,15 @@ function Skybox360Viewer({
     const loader = new THREE.TextureLoader();
 
     // RENDER 6 SISI CUBEMAP ROBLOX
-    if (slicedFaces) {
+        if (slicedFaces) {
+      // Urutan Wajib BoxGeometry Three.js: [+X, -X, +Y, -Y, +Z, -Z]
       const materials = [
-        new THREE.MeshBasicMaterial({ map: loader.load(slicedFaces.rt), side: THREE.BackSide }),
-        new THREE.MeshBasicMaterial({ map: loader.load(slicedFaces.lf), side: THREE.BackSide }),
-        new THREE.MeshBasicMaterial({ map: loader.load(slicedFaces.up), side: THREE.BackSide }),
-        new THREE.MeshBasicMaterial({ map: loader.load(slicedFaces.dn), side: THREE.BackSide }),
-        new THREE.MeshBasicMaterial({ map: loader.load(slicedFaces.ft), side: THREE.BackSide }),
-        new THREE.MeshBasicMaterial({ map: loader.load(slicedFaces.bk), side: THREE.BackSide }),
+        new THREE.MeshBasicMaterial({ map: loader.load(slicedFaces.ft), side: THREE.BackSide }), // +X (Front)
+        new THREE.MeshBasicMaterial({ map: loader.load(slicedFaces.bk), side: THREE.BackSide }), // -X (Back)
+        new THREE.MeshBasicMaterial({ map: loader.load(slicedFaces.up), side: THREE.BackSide }), // +Y (Up)
+        new THREE.MeshBasicMaterial({ map: loader.load(slicedFaces.dn), side: THREE.BackSide }), // -Y (Down)
+        new THREE.MeshBasicMaterial({ map: loader.load(slicedFaces.lf), side: THREE.BackSide }), // +Z (Left)
+        new THREE.MeshBasicMaterial({ map: loader.load(slicedFaces.rt), side: THREE.BackSide }), // -Z (Right)
       ];
 
       materials.forEach((m) => {
