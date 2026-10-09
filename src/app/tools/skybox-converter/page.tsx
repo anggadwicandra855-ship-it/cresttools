@@ -243,6 +243,103 @@ function Skybox360Viewer({
 
   if (!panoramaUrl && !slicedFaces)
     return (
+function Skybox360Viewer({
+  slicedFaces,
+  panoramaUrl,
+  autoRotate,
+  containerId,
+}: {
+  slicedFaces: Record<SkyboxFace, string> | null;
+  panoramaUrl: string | null;
+  autoRotate: boolean;
+  containerId: string;
+}) {
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!containerRef.current) return;
+    const container = containerRef.current;
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(
+      75,
+      container.clientWidth / container.clientHeight,
+      0.1,
+      1000
+    );
+    camera.position.set(0, 0, 0.1);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(container.clientWidth, container.clientHeight);
+    renderer.setPixelRatio(window.devicePixelRatio);
+    renderer.domElement.style.touchAction = "none";
+
+    container.innerHTML = "";
+    container.appendChild(renderer.domElement);
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableZoom = true;
+    controls.enablePan = false;
+    controls.rotateSpeed = -0.5;
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.05;
+    controls.autoRotate = autoRotate;
+    controls.autoRotateSpeed = 0.5;
+
+    const loader = new THREE.TextureLoader();
+
+    // RENDER 6 SISI CUBEMAP ROBLOX
+    if (slicedFaces) {
+      // Menggunakan side: THREE.BackSide agar render tepat dari dalam kubus
+      const materials = [
+        new THREE.MeshBasicMaterial({ map: loader.load(slicedFaces.rt), side: THREE.BackSide }),
+        new THREE.MeshBasicMaterial({ map: loader.load(slicedFaces.lf), side: THREE.BackSide }),
+        new THREE.MeshBasicMaterial({ map: loader.load(slicedFaces.up), side: THREE.BackSide }),
+        new THREE.MeshBasicMaterial({ map: loader.load(slicedFaces.dn), side: THREE.BackSide }),
+        new THREE.MeshBasicMaterial({ map: loader.load(slicedFaces.ft), side: THREE.BackSide }),
+        new THREE.MeshBasicMaterial({ map: loader.load(slicedFaces.bk), side: THREE.BackSide }),
+      ];
+
+      materials.forEach((m) => {
+        if (m.map) m.map.colorSpace = THREE.SRGBColorSpace;
+      });
+
+      const geometry = new THREE.BoxGeometry(500, 500, 500);
+      // HAPUS geometry.scale(-1, 1, 1) agar gambar tidak dicermin/terbalik!
+      scene.add(new THREE.Mesh(geometry, materials));
+    } else if (panoramaUrl) {
+      // Fallback Panorama Sphere
+      loader.load(panoramaUrl, (texture: any) => {
+        texture.colorSpace = THREE.SRGBColorSpace;
+        const geometry = new THREE.SphereGeometry(500, 64, 64);
+        geometry.scale(-1, 1, 1);
+        const material = new THREE.MeshBasicMaterial({ map: texture });
+        scene.add(new THREE.Mesh(geometry, material));
+      });
+    }
+
+    const animate = () => {
+      requestAnimationFrame(animate);
+      controls.update();
+      renderer.render(scene, camera);
+    };
+    animate();
+
+    const onResize = () => {
+      camera.aspect = container.clientWidth / container.clientHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(container.clientWidth, container.clientHeight);
+    };
+    window.addEventListener("resize", onResize);
+
+    return () => {
+      window.removeEventListener("resize", onResize);
+      renderer.dispose();
+      container.innerHTML = "";
+    };
+  }, [slicedFaces, panoramaUrl, autoRotate]);
+
+  if (!panoramaUrl && !slicedFaces)
+    return (
       <div className="w-full h-full flex flex-col items-center justify-center text-slate-500 font-mono text-xs">
         <Maximize2 className="w-8 h-8 mb-2 opacity-50" />
         Upload panorama untuk inspect hasil 6 sisi
