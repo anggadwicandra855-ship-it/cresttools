@@ -148,18 +148,20 @@ const dataURItoBlob = (dataURI: string) => {
 };
 
 function Skybox360Viewer({
-  textureUrl,
+  slicedFaces,
+  panoramaUrl,
   autoRotate,
   containerId,
 }: {
-  textureUrl: string | null;
+  slicedFaces: Record<SkyboxFace, string> | null;
+  panoramaUrl: string | null;
   autoRotate: boolean;
   containerId: string;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (!containerRef.current || !textureUrl) return;
+    if (!containerRef.current) return;
     const container = containerRef.current;
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(
@@ -173,8 +175,6 @@ function Skybox360Viewer({
     const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setSize(container.clientWidth, container.clientHeight);
     renderer.setPixelRatio(window.devicePixelRatio);
-    
-    // FIX UNTUK HP: Cegah browser scroll pas layar di-swipe
     renderer.domElement.style.touchAction = "none";
     
     container.innerHTML = "";
@@ -184,19 +184,41 @@ function Skybox360Viewer({
     controls.enableZoom = true;
     controls.enablePan = false;
     controls.rotateSpeed = -0.5;
-    controls.enableDamping = true; // Biar swipe di HP makin mulus & responsif
+    controls.enableDamping = true;
     controls.dampingFactor = 0.05;
     controls.autoRotate = autoRotate;
     controls.autoRotateSpeed = 0.5;
 
     const loader = new THREE.TextureLoader();
-    loader.load(textureUrl, (texture: any) => {
-      texture.colorSpace = THREE.SRGBColorSpace;
-      const geometry = new THREE.SphereGeometry(500, 64, 64);
+
+    // Jika 6 sisi sudah terpotong, render Cubemap 6 Sisi khas Roblox Studio
+    if (slicedFaces) {
+      const materials = [
+        new THREE.MeshBasicMaterial({ map: loader.load(slicedFaces.rt) }),
+        new THREE.MeshBasicMaterial({ map: loader.load(slicedFaces.lf) }),
+        new THREE.MeshBasicMaterial({ map: loader.load(slicedFaces.up) }),
+        new THREE.MeshBasicMaterial({ map: loader.load(slicedFaces.dn) }),
+        new THREE.MeshBasicMaterial({ map: loader.load(slicedFaces.ft) }),
+        new THREE.MeshBasicMaterial({ map: loader.load(slicedFaces.bk) }),
+      ];
+
+      materials.forEach((m) => {
+        if (m.map) m.map.colorSpace = THREE.SRGBColorSpace;
+      });
+
+      const geometry = new THREE.BoxGeometry(500, 500, 500);
       geometry.scale(-1, 1, 1);
-      const material = new THREE.MeshBasicMaterial({ map: texture });
-      scene.add(new THREE.Mesh(geometry, material));
-    });
+      scene.add(new THREE.Mesh(geometry, materials));
+    } else if (panoramaUrl) {
+      // Fallback ke Sphere Panorama jika belum terpotong
+      loader.load(panoramaUrl, (texture: any) => {
+        texture.colorSpace = THREE.SRGBColorSpace;
+        const geometry = new THREE.SphereGeometry(500, 64, 64);
+        geometry.scale(-1, 1, 1);
+        const material = new THREE.MeshBasicMaterial({ map: texture });
+        scene.add(new THREE.Mesh(geometry, material));
+      });
+    }
 
     const animate = () => {
       requestAnimationFrame(animate);
@@ -217,13 +239,13 @@ function Skybox360Viewer({
       renderer.dispose();
       container.innerHTML = "";
     };
-  }, [textureUrl, autoRotate]);
+  }, [slicedFaces, panoramaUrl, autoRotate]);
 
-  if (!textureUrl)
+  if (!panoramaUrl && !slicedFaces)
     return (
       <div className="w-full h-full flex flex-col items-center justify-center text-slate-500 font-mono text-xs">
         <Maximize2 className="w-8 h-8 mb-2 opacity-50" />
-        Upload panorama untuk POV 360°
+        Upload panorama untuk inspect hasil 6 sisi
       </div>
     );
 
@@ -533,11 +555,16 @@ sky.Parent = game.Lighting`;
                   </div>
                 </div>
                 <div
-                  id="viewer-full"
-                  className="w-full h-[380px] bg-black rounded-xl overflow-hidden border border-slate-800"
-                >
-                  <Skybox360Viewer textureUrl={panoramaUrl} autoRotate={autoRotate} containerId="viewer-full" />
-                </div>
+  id="viewer-full"
+  className="w-full h-[380px] bg-black rounded-xl overflow-hidden border border-slate-800"
+>
+  <Skybox360Viewer 
+    slicedFaces={slicedFaces} 
+    panoramaUrl={panoramaUrl} 
+    autoRotate={autoRotate} 
+    containerId="viewer-full" 
+  />
+</div>
               </div>
             </div>
 

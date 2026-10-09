@@ -44,21 +44,19 @@ export const convertEquirectToSkybox = async (
             let vx = 0, vy = 0, vz = 0;
 
             switch (face) {
-              // SISI SAMPING (Presisi 100%)
               case "ft": vx = 1;    vy = -ny;  vz = nx;  break;
               case "rt": vx = nx;   vy = -ny;  vz = -1;  break;
               case "bk": vx = -1;   vy = -ny;  vz = -nx; break;
               case "lf": vx = -nx;  vy = -ny;  vz = 1;   break;
 
-              // FIX FINAL ATAS & BAWAH: Mengunci tepi ny = 1 lurus ke Ft (vx = 1)
-              case "up": vx = ny;   vy = 1;    vz = -nx; break;
-              case "dn": vx = ny;   vy = -1;   vz = nx;  break;
+              // FIX KUNCI: vz diubah dari -nx jadi nx (hapus efek cermin)
+              case "up": vx = ny;   vy = 1;    vz = nx;  break;
+              case "dn": vx = ny;   vy = -1;   vz = -nx; break;
             }
 
             const r = Math.sqrt(vx * vx + vy * vy + vz * vz);
             vx /= r; vy /= r; vz /= r;
 
-            // Offset Yaw Rotation
             const phi = Math.atan2(vx, -vz) + yawRad;
             const theta = Math.asin(vy);
 
