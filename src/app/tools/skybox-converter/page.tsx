@@ -176,102 +176,6 @@ function Skybox360Viewer({
     renderer.setSize(container.clientWidth, container.clientHeight);
     renderer.setPixelRatio(window.devicePixelRatio);
     renderer.domElement.style.touchAction = "none";
-    
-    container.innerHTML = "";
-    container.appendChild(renderer.domElement);
-
-    const controls = new OrbitControls(camera, renderer.domElement);
-    controls.enableZoom = true;
-    controls.enablePan = false;
-    controls.rotateSpeed = -0.5;
-    controls.enableDamping = true;
-    controls.dampingFactor = 0.05;
-    controls.autoRotate = autoRotate;
-    controls.autoRotateSpeed = 0.5;
-
-    const loader = new THREE.TextureLoader();
-
-    // Jika 6 sisi sudah terpotong, render Cubemap 6 Sisi khas Roblox Studio
-    if (slicedFaces) {
-      const materials = [
-        new THREE.MeshBasicMaterial({ map: loader.load(slicedFaces.rt) }),
-        new THREE.MeshBasicMaterial({ map: loader.load(slicedFaces.lf) }),
-        new THREE.MeshBasicMaterial({ map: loader.load(slicedFaces.up) }),
-        new THREE.MeshBasicMaterial({ map: loader.load(slicedFaces.dn) }),
-        new THREE.MeshBasicMaterial({ map: loader.load(slicedFaces.ft) }),
-        new THREE.MeshBasicMaterial({ map: loader.load(slicedFaces.bk) }),
-      ];
-
-      materials.forEach((m) => {
-        if (m.map) m.map.colorSpace = THREE.SRGBColorSpace;
-      });
-
-      const geometry = new THREE.BoxGeometry(500, 500, 500);
-      geometry.scale(-1, 1, 1);
-      scene.add(new THREE.Mesh(geometry, materials));
-    } else if (panoramaUrl) {
-      // Fallback ke Sphere Panorama jika belum terpotong
-      loader.load(panoramaUrl, (texture: any) => {
-        texture.colorSpace = THREE.SRGBColorSpace;
-        const geometry = new THREE.SphereGeometry(500, 64, 64);
-        geometry.scale(-1, 1, 1);
-        const material = new THREE.MeshBasicMaterial({ map: texture });
-        scene.add(new THREE.Mesh(geometry, material));
-      });
-    }
-
-    const animate = () => {
-      requestAnimationFrame(animate);
-      controls.update();
-      renderer.render(scene, camera);
-    };
-    animate();
-
-    const onResize = () => {
-      camera.aspect = container.clientWidth / container.clientHeight;
-      camera.updateProjectionMatrix();
-      renderer.setSize(container.clientWidth, container.clientHeight);
-    };
-    window.addEventListener("resize", onResize);
-
-    return () => {
-      window.removeEventListener("resize", onResize);
-      renderer.dispose();
-      container.innerHTML = "";
-    };
-  }, [slicedFaces, panoramaUrl, autoRotate]);
-
-  if (!panoramaUrl && !slicedFaces)
-    return (
-function Skybox360Viewer({
-  slicedFaces,
-  panoramaUrl,
-  autoRotate,
-  containerId,
-}: {
-  slicedFaces: Record<SkyboxFace, string> | null;
-  panoramaUrl: string | null;
-  autoRotate: boolean;
-  containerId: string;
-}) {
-  const containerRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!containerRef.current) return;
-    const container = containerRef.current;
-    const scene = new THREE.Scene();
-    const camera = new THREE.PerspectiveCamera(
-      75,
-      container.clientWidth / container.clientHeight,
-      0.1,
-      1000
-    );
-    camera.position.set(0, 0, 0.1);
-
-    const renderer = new THREE.WebGLRenderer({ antialias: true });
-    renderer.setSize(container.clientWidth, container.clientHeight);
-    renderer.setPixelRatio(window.devicePixelRatio);
-    renderer.domElement.style.touchAction = "none";
 
     container.innerHTML = "";
     container.appendChild(renderer.domElement);
@@ -289,7 +193,6 @@ function Skybox360Viewer({
 
     // RENDER 6 SISI CUBEMAP ROBLOX
     if (slicedFaces) {
-      // Menggunakan side: THREE.BackSide agar render tepat dari dalam kubus
       const materials = [
         new THREE.MeshBasicMaterial({ map: loader.load(slicedFaces.rt), side: THREE.BackSide }),
         new THREE.MeshBasicMaterial({ map: loader.load(slicedFaces.lf), side: THREE.BackSide }),
@@ -304,7 +207,6 @@ function Skybox360Viewer({
       });
 
       const geometry = new THREE.BoxGeometry(500, 500, 500);
-      // HAPUS geometry.scale(-1, 1, 1) agar gambar tidak dicermin/terbalik!
       scene.add(new THREE.Mesh(geometry, materials));
     } else if (panoramaUrl) {
       // Fallback Panorama Sphere
@@ -652,16 +554,16 @@ sky.Parent = game.Lighting`;
                   </div>
                 </div>
                 <div
-  id="viewer-full"
-  className="w-full h-[380px] bg-black rounded-xl overflow-hidden border border-slate-800"
->
-  <Skybox360Viewer 
-    slicedFaces={slicedFaces} 
-    panoramaUrl={panoramaUrl} 
-    autoRotate={autoRotate} 
-    containerId="viewer-full" 
-  />
-</div>
+                  id="viewer-full"
+                  className="w-full h-[380px] bg-black rounded-xl overflow-hidden border border-slate-800"
+                >
+                  <Skybox360Viewer 
+                    slicedFaces={slicedFaces} 
+                    panoramaUrl={panoramaUrl} 
+                    autoRotate={autoRotate} 
+                    containerId="viewer-full" 
+                  />
+                </div>
               </div>
             </div>
 
