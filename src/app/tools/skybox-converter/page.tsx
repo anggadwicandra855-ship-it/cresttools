@@ -176,7 +176,7 @@ function Skybox360Viewer({
     renderer.setSize(container.clientWidth, container.clientHeight);
     renderer.setPixelRatio(window.devicePixelRatio);
     renderer.domElement.style.touchAction = "none";
-
+    
     container.innerHTML = "";
     container.appendChild(renderer.domElement);
 
@@ -191,30 +191,40 @@ function Skybox360Viewer({
 
     const loader = new THREE.TextureLoader();
 
-    // RENDER 6 SISI CUBEMAP ROBLOX
-        if (slicedFaces) {
-      // Urutan Wajib BoxGeometry Three.js: [+X, -X, +Y, -Y, +Z, -Z]
+    if (slicedFaces) {
+      // FIX CLAUDE: Fungsi untuk flip tekstur memori khusus buat Web Preview (tanpa sentuh file asli)
+      const make = (url: string, flip: "h" | "v") => {
+        const t = loader.load(url);
+        t.colorSpace = THREE.SRGBColorSpace;
+        if (flip === "h") {
+          t.wrapS = THREE.RepeatWrapping;
+          t.repeat.x = -1;
+          t.offset.x = 1;
+        } else {
+          t.wrapT = THREE.RepeatWrapping;
+          t.repeat.y = -1;
+          t.offset.y = 1;
+        }
+        return new THREE.MeshBasicMaterial({ map: t, side: THREE.BackSide });
+      };
+
+      // Urutan BoxGeometry: +X, -X, +Y, -Y, +Z, -Z
       const materials = [
-        new THREE.MeshBasicMaterial({ map: loader.load(slicedFaces.ft), side: THREE.BackSide }), // +X (Front)
-        new THREE.MeshBasicMaterial({ map: loader.load(slicedFaces.bk), side: THREE.BackSide }), // -X (Back)
-        new THREE.MeshBasicMaterial({ map: loader.load(slicedFaces.up), side: THREE.BackSide }), // +Y (Up)
-        new THREE.MeshBasicMaterial({ map: loader.load(slicedFaces.dn), side: THREE.BackSide }), // -Y (Down)
-        new THREE.MeshBasicMaterial({ map: loader.load(slicedFaces.lf), side: THREE.BackSide }), // +Z (Left)
-        new THREE.MeshBasicMaterial({ map: loader.load(slicedFaces.rt), side: THREE.BackSide }), // -Z (Right)
+        make(slicedFaces.rt, "h"), // +X
+        make(slicedFaces.lf, "h"), // -X
+        make(slicedFaces.up, "v"), // +Y
+        make(slicedFaces.dn, "v"), // -Y
+        make(slicedFaces.bk, "h"), // +Z
+        make(slicedFaces.ft, "h"), // -Z
       ];
 
-      materials.forEach((m) => {
-        if (m.map) m.map.colorSpace = THREE.SRGBColorSpace;
-      });
-
-      const geometry = new THREE.BoxGeometry(500, 500, 500);
-      scene.add(new THREE.Mesh(geometry, materials));
+      scene.add(new THREE.Mesh(new THREE.BoxGeometry(500, 500, 500), materials));
     } else if (panoramaUrl) {
-      // Fallback Panorama Sphere
       loader.load(panoramaUrl, (texture: any) => {
         texture.colorSpace = THREE.SRGBColorSpace;
         const geometry = new THREE.SphereGeometry(500, 64, 64);
         geometry.scale(-1, 1, 1);
+        geometry.rotateY(-Math.PI / 2); // FIX CLAUDE: Sinkronin arah kamera pas upload Sphere Panorama
         const material = new THREE.MeshBasicMaterial({ map: texture });
         scene.add(new THREE.Mesh(geometry, material));
       });
