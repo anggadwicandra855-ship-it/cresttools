@@ -1,5 +1,73 @@
 import { NextRequest, NextResponse } from "next/server";
 
+// Polling Roblox bisa makan waktu, kasih ruang napas (berlaku di hosting yang support).
+export const maxDuration = 60;
+
+const ASSETS_URL = "https://apis.roblox.com/assets/v1/assets";
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+type AssetKind = "Image" | "Decal";
+
+const createAsset = async (
+  kind: AssetKind,
+  apiKey: string,
+  name: string,
+  creatorType: string,
+  creatorId: string,
+  file: File
+) => {
+  const payload = {
+    assetType: kind,
+    displayName: name || "CrestSkybox_Face",
+    description: "Uploaded automatically via CrestTools",
+    creationContext: {
+      creator: {
+        [creatorType === "Group" ? "groupId" : "userId"]: creatorId,
+      },
+    },
+  };
+
+  // FormData dibuat ulang tiap percobaan
+  const form = new FormData();
+  form.append("request", JSON.stringify(payload));
+  form.append("fileContent", file, file.name);
+
+  const res = await fetch(ASSETS_URL, {
+    method: "POST",
+    headers: { "x-api-key": apiKey },
+    body: form,
+  });
+  const data = await res.json().catch(() => ({}));
+  return { res, data };
+};
+
+// Cek status operation sampai selesai (max ±50 detik).
+const pollOperation = async (path: string, apiKey: string) => {
+  const url = `https://apis.roblox.com/assets/v1/${path}`;
+  for (let i = 0; i < 40; i++) {
+    await sleep(Math.min(500 + i * 150, 1500));
+    const r = await fetch(url, {
+      method: "GET",
+      headers: { "x-api-key": apiKey },
+      cache: "no-store",
+    });
+
+    if (r.status === 401 || r.status === 403) {
+      return {
+        error: {
+          message:
+            "API key ditolak saat cek status upload. Pastikan key punya izin asset:read DAN asset:write.",
+        },
+      };
+    }
+    if (!r.ok) continue;
+
+    const d = await r.json().catch(() => null);
+    if (d?.done) return d;
+  }
+  return null;
+};
+
 export async function POST(req: NextRequest) {
   try {
     const formData = await req.formData();
@@ -16,86 +84,67 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Payload metadata untuk Roblox Assets API v1
-    const requestPayload = {
-      assetType: "Decal",
-      displayName: name || "CrestSkybox_Face",
-      description: "Uploaded automatically via CrestTools",
-      creationContext: {
-        creator: {
-          [creatorType === "Group" ? "groupId" : "userId"]: creatorId,
-        },
-      },
-    };
+    // 1. Coba upload sebagai "Image" (ID langsung bisa dipakai Sky).
+    //    Kalau Roblox nolak tipenya (400), fallback ke "Decal".
+    let usedType: AssetKind = "Image";
+    let { res, data } = await createAsset("Image", apiKey, name, creatorType, creatorId, file);
 
-    const robloxFormData = new FormData();
-    robloxFormData.append("request", JSON.stringify(requestPayload));
-    robloxFormData.append("fileContent", file, file.name);
-
-    // Tembak langsung ke Endpoint Resmi Roblox Open Cloud
-    const res = await fetch("https://apis.roblox.com/assets/v1/assets", {
-      method: "POST",
-      headers: {
-        "x-api-key": apiKey,
-      },
-      body: robloxFormData,
-    });
-
-    const data = await res.json();
+    if (!res.ok && res.status === 400) {
+      usedType = "Decal";
+      ({ res, data } = await createAsset("Decal", apiKey, name, creatorType, creatorId, file));
+    }
 
     if (!res.ok) {
       return NextResponse.json(
-        { error: data.message || "Gagal upload ke Roblox Studio" },
+        { error: data?.message || `Roblox menolak upload (HTTP ${res.status})` },
         { status: res.status }
       );
     }
 
-    // 1. Cek apakah Asset ID numerik sudah ada di objek response langsung
-    let finalAssetId =
-      data.response?.assetId || data.response?.path?.split("/").pop();
-
-    // 2. Jika belum ada dan yang dikembalikan adalah Operation ID, lakukan polling ke Roblox
-    if (!finalAssetId && data.path && data.path.startsWith("operations/")) {
-      const pollUrl = `https://apis.roblox.com/assets/v1/${data.path}`;
-
-      for (let i = 0; i < 6; i++) {
-        // Tunggu 800ms sebelum cek status operation
-        await new Promise((resolve) => setTimeout(resolve, 800));
-
-        const pollRes = await fetch(pollUrl, {
-          method: "GET",
-          headers: { "x-api-key": apiKey },
-        });
-
-        if (pollRes.ok) {
-          const pollData = await pollRes.json();
-          if (pollData.done && pollData.response) {
-            finalAssetId =
-              pollData.response.assetId ||
-              pollData.response.path?.split("/").pop();
-            break;
-          }
-        }
+    // 2. Ambil hasil operation (langsung selesai, atau polling)
+    let op = data;
+    const needsPolling = !(op?.done && op?.response);
+    if (needsPolling && typeof op?.path === "string" && op.path.startsWith("operations/")) {
+      op = await pollOperation(op.path, apiKey);
+      if (!op) {
+        return NextResponse.json(
+          {
+            error:
+              "Roblox masih memproses asset ini (timeout cek status). Asset mungkin sudah ke-upload, cek di Creator Hub lalu coba lagi.",
+          },
+          { status: 504 }
+        );
       }
     }
 
+    if (op?.error) {
+      return NextResponse.json(
+        { error: op.error.message || "Roblox gagal memproses asset." },
+        { status: 422 }
+      );
+    }
+
+    const resp = op?.response ?? data?.response ?? data;
+    const finalAssetId = resp?.assetId || resp?.path?.split("/").pop();
+
     if (!finalAssetId) {
       return NextResponse.json(
-        { error: "Gagal mengambil Asset ID numerik dari Roblox." },
+        { error: "Upload selesai tapi Asset ID tidak ditemukan di respons Roblox." },
         { status: 500 }
       );
     }
 
-    // Balikan Asset ID Murni (Angka)
+    const moderationState: string | null =
+      resp?.moderationResult?.moderationState?.replace("MODERATION_STATE_", "") ?? null;
+
     return NextResponse.json({
       success: true,
-      assetId: finalAssetId,
-      raw: data,
+      assetId: String(finalAssetId),
+      assetType: usedType,
+      moderationState,
     });
-  } catch (err: any) {
-    return NextResponse.json(
-      { error: err.message || "Internal Proxy Server Error" },
-      { status: 500 }
-    );
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Internal Proxy Server Error";
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

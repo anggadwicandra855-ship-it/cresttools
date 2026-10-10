@@ -3,10 +3,17 @@
 import React, { useState, useRef, useEffect } from "react";
 import Link from "next/link";
 import Navbar from "@/components/layout/Navbar";
-import * as THREE from "three";
-import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
+import SkyboxPreview from "@/components/skybox/SkyboxPreview";
 import JSZip from "jszip";
-import { convertEquirectToSkybox, SkyboxFace } from "@/utils/skyboxConverter";
+import {
+  convertEquirectToSkybox,
+  applyFaceConfig,
+  generateTestPanorama,
+  DEFAULT_FACE_CONFIG,
+  NEUTRAL_FACE_CONFIG,
+  SkyboxFace,
+  FaceConfig,
+} from "@/utils/skyboxConverter";
 import {
   ImageIcon,
   ArrowLeft,
@@ -21,12 +28,16 @@ import {
   Loader2,
   Box,
   Code2,
-  CheckCircle2,
   CloudUpload,
   Settings,
   Sliders,
   Layers,
   Wand2,
+  FlaskConical,
+  RotateCcw,
+  CheckCircle2,
+  XCircle,
+  AlertTriangle,
 } from "lucide-react";
 
 interface SkyboxPreset {
@@ -110,6 +121,108 @@ const AI_PRESETS: SkyboxPreset[] = [
   },
 ];
 
+const FACE_LIST: { key: SkyboxFace; label: string }[] = [
+  { key: "up", label: "SkyboxUp" },
+  { key: "dn", label: "SkyboxDn" },
+  { key: "lf", label: "SkyboxLf" },
+  { key: "rt", label: "SkyboxRt" },
+  { key: "ft", label: "SkyboxFt" },
+  { key: "bk", label: "SkyboxBk" },
+];
+
+// Tag versi: tampil di layar + console, buat mastiin build terbaru yang jalan.
+const BUILD_TAG = "build v4.1";
+
+// v2: default baru (mapping hasil tes Studio). Key lama diabaikan.
+const FACE_CONFIG_KEY = "crest_skybox_face_config_v2";
+
+type UploadState = "idle" | "uploading" | "success" | "error";
+interface FaceUploadStatus {
+  state: UploadState;
+  message?: string;
+  moderation?: string | null;
+  assetType?: string;
+}
+
+const emptyIds = (): Record<SkyboxFace, string> => ({
+  up: "", dn: "", lf: "", rt: "", ft: "", bk: "",
+});
+
+const emptyStatus = (): Record<SkyboxFace, FaceUploadStatus> => ({
+  up: { state: "idle" },
+  dn: { state: "idle" },
+  lf: { state: "idle" },
+  rt: { state: "idle" },
+  ft: { state: "idle" },
+  bk: { state: "idle" },
+});
+
+const cloneConfig = (cfg: Record<SkyboxFace, FaceConfig>): Record<SkyboxFace, FaceConfig> =>
+  JSON.parse(JSON.stringify(cfg));
+
+// Script Luau siap pakai. IDs = ID slot Roblox (sudah benar karena swap terjadi sebelum upload).
+const buildLua = (ids: Record<SkyboxFace, string>) => `-- Crest Tools - Skybox (siap pakai)
+-- Cara pakai: Studio > View > Command Bar > paste > Enter.
+-- (Kalau dijadikan Script biasa, Sky cuma kebentuk saat Play.)
+
+local Lighting = game:GetService("Lighting")
+local InsertService = game:GetService("InsertService")
+
+local IDS = {
+  Bk = ${ids.bk},
+  Dn = ${ids.dn},
+  Ft = ${ids.ft},
+  Lf = ${ids.lf},
+  Rt = ${ids.rt},
+  Up = ${ids.up},
+}
+
+-- Kalau ID bertipe Decal, ambil ID gambar aslinya.
+-- Kalau gagal / sudah ID gambar, pakai ID apa adanya.
+local function resolve(id)
+  local ok, model = pcall(function()
+    return InsertService:LoadAsset(id)
+  end)
+  if ok and model then
+    local decal = model:FindFirstChildWhichIsA("Decal", true)
+    local tex = decal and decal.Texture or ""
+    model:Destroy()
+    if tex ~= "" then
+      return tex
+    end
+  end
+  return "rbxassetid://" .. id
+end
+
+-- Hapus Sky lama biar ga tabrakan
+for _, child in ipairs(Lighting:GetChildren()) do
+  if child:IsA("Sky") then
+    child:Destroy()
+  end
+end
+
+local sky = Instance.new("Sky")
+sky.Name = "CrestSky"
+
+local PROPS = {
+  Bk = "SkyboxBk",
+  Dn = "SkyboxDn",
+  Ft = "SkyboxFt",
+  Lf = "SkyboxLf",
+  Rt = "SkyboxRt",
+  Up = "SkyboxUp",
+}
+
+for face, prop in pairs(PROPS) do
+  local value = resolve(IDS[face])
+  sky[prop] = value
+  print(("[CrestSky] %s -> %s"):format(prop, value))
+end
+
+sky.Parent = Lighting
+print("[CrestSky] Sky terpasang!")
+`;
+
 const getAndClearIndexedDB = (): Promise<string | null> => {
   return new Promise((resolve) => {
     if (typeof window === "undefined" || !window.indexedDB) return resolve(null);
@@ -147,176 +260,150 @@ const dataURItoBlob = (dataURI: string) => {
   return new Blob([ab], { type: mimeString });
 };
 
-function Skybox360Viewer({
-  slicedFaces,
-  panoramaUrl,
-  autoRotate,
-  containerId,
-}: {
-  slicedFaces: Record<SkyboxFace, string> | null;
-  panoramaUrl: string | null;
-  autoRotate: boolean;
-  containerId: string;
-}) {
-  const containerRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!containerRef.current) return;
-    const container = containerRef.current;
-    const scene = new THREE.Scene();
-    const camera = new THREE.PerspectiveCamera(
-      75,
-      container.clientWidth / container.clientHeight,
-      0.1,
-      1000
-    );
-    camera.position.set(0, 0, 0.1);
-
-    const renderer = new THREE.WebGLRenderer({ antialias: true });
-    renderer.setSize(container.clientWidth, container.clientHeight);
-    renderer.setPixelRatio(window.devicePixelRatio);
-    renderer.domElement.style.touchAction = "none";
-    
-    container.innerHTML = "";
-    container.appendChild(renderer.domElement);
-
-    const controls = new OrbitControls(camera, renderer.domElement);
-    controls.enableZoom = true;
-    controls.enablePan = false;
-    controls.rotateSpeed = -0.5;
-    controls.enableDamping = true;
-    controls.dampingFactor = 0.05;
-    controls.autoRotate = autoRotate;
-    controls.autoRotateSpeed = 0.5;
-
-    const loader = new THREE.TextureLoader();
-
-    if (slicedFaces) {
-      // FIX CLAUDE: Fungsi untuk flip tekstur memori khusus buat Web Preview (tanpa sentuh file asli)
-      const make = (url: string, flip: "h" | "v") => {
-        const t = loader.load(url);
-        t.colorSpace = THREE.SRGBColorSpace;
-        if (flip === "h") {
-          t.wrapS = THREE.RepeatWrapping;
-          t.repeat.x = -1;
-          t.offset.x = 1;
-        } else {
-          t.wrapT = THREE.RepeatWrapping;
-          t.repeat.y = -1;
-          t.offset.y = 1;
-        }
-        return new THREE.MeshBasicMaterial({ map: t, side: THREE.BackSide });
-      };
-
-      // Urutan BoxGeometry: +X, -X, +Y, -Y, +Z, -Z
-      const materials = [
-        make(slicedFaces.rt, "h"), // +X
-        make(slicedFaces.lf, "h"), // -X
-        make(slicedFaces.up, "v"), // +Y
-        make(slicedFaces.dn, "v"), // -Y
-        make(slicedFaces.bk, "h"), // +Z
-        make(slicedFaces.ft, "h"), // -Z
-      ];
-
-      scene.add(new THREE.Mesh(new THREE.BoxGeometry(500, 500, 500), materials));
-    } else if (panoramaUrl) {
-      loader.load(panoramaUrl, (texture: any) => {
-        texture.colorSpace = THREE.SRGBColorSpace;
-        const geometry = new THREE.SphereGeometry(500, 64, 64);
-        geometry.scale(-1, 1, 1);
-        geometry.rotateY(-Math.PI / 2); // FIX CLAUDE: Sinkronin arah kamera pas upload Sphere Panorama
-        const material = new THREE.MeshBasicMaterial({ map: texture });
-        scene.add(new THREE.Mesh(geometry, material));
-      });
-    }
-
-    const animate = () => {
-      requestAnimationFrame(animate);
-      controls.update();
-      renderer.render(scene, camera);
-    };
-    animate();
-
-    const onResize = () => {
-      camera.aspect = container.clientWidth / container.clientHeight;
-      camera.updateProjectionMatrix();
-      renderer.setSize(container.clientWidth, container.clientHeight);
-    };
-    window.addEventListener("resize", onResize);
-
-    return () => {
-      window.removeEventListener("resize", onResize);
-      renderer.dispose();
-      container.innerHTML = "";
-    };
-  }, [slicedFaces, panoramaUrl, autoRotate]);
-
-  if (!panoramaUrl && !slicedFaces)
-    return (
-      <div className="w-full h-full flex flex-col items-center justify-center text-slate-500 font-mono text-xs">
-        <Maximize2 className="w-8 h-8 mb-2 opacity-50" />
-        Upload panorama untuk inspect hasil 6 sisi
-      </div>
-    );
-
-  return (
-    <div
-      id={containerId}
-      ref={containerRef}
-      className="w-full h-full cursor-grab active:cursor-grabbing touch-none select-none"
-    />
-  );
-}
-
 export default function SkyboxConverterPage() {
   const [activeTab, setActiveTab] = useState<"convert" | "stitch" | "prompts">("convert");
   const [isProcessing, setIsProcessing] = useState(false);
-  const [slicedFaces, setSlicedFaces] = useState<Record<SkyboxFace, string> | null>(null);
-  const [panoramaUrl, setPanoramaUrl] = useState<string | null>(null);
+
+  // sourceUrl   : panorama 2:1
+  // idealFaces  : 6 face dari converter -> PREVIEW
+  // exportFaces : idealFaces + penyesuaian slot Roblox -> ZIP / UPLOAD / thumbnail
+  const [sourceUrl, setSourceUrl] = useState<string | null>(null);
+  const [idealFaces, setIdealFaces] = useState<Record<SkyboxFace, string> | null>(null);
+  const [exportFaces, setExportFaces] = useState<Record<SkyboxFace, string> | null>(null);
+  const [faceConfig, setFaceConfig] = useState<Record<SkyboxFace, FaceConfig>>(() =>
+    cloneConfig(DEFAULT_FACE_CONFIG)
+  );
+
   const [yawOffset, setYawOffset] = useState(0);
   const [autoRotate, setAutoRotate] = useState(false);
   const [copiedPromptId, setCopiedPromptId] = useState<string | null>(null);
 
-  const [stitchImages, setStitchImages] = useState<Record<SkyboxFace, string>>({
-    up: "", dn: "", lf: "", rt: "", ft: "", bk: "",
-  });
+  const [stitchImages, setStitchImages] = useState<Record<SkyboxFace, string>>(emptyIds());
 
-  const [robloxIds, setRobloxIds] = useState<Record<SkyboxFace, string>>({
-    up: "", dn: "", lf: "", rt: "", ft: "", bk: "",
-  });
+  // Hasil upload (ID slot Roblox + status per sisi)
+  const [robloxIds, setRobloxIds] = useState<Record<SkyboxFace, string>>(emptyIds());
+  const [uploadStatus, setUploadStatus] = useState<Record<SkyboxFace, FaceUploadStatus>>(emptyStatus());
 
   const [copiedLua, setCopiedLua] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const processEquirectangularImage = async (src: string, yaw: number = yawOffset) => {
-    setIsProcessing(true);
-    setPanoramaUrl(src);
+  const convertReqRef = useRef(0);
+  const exportReqRef = useRef(0);
+
+  useEffect(() => {
+    console.log(`[CrestTools] Skybox page ${BUILD_TAG}`);
+  }, []);
+
+  // ---------- Load konfigurasi tersimpan ----------
+  useEffect(() => {
     try {
-      const slices = await convertEquirectToSkybox(src, 1024, yaw);
-      setSlicedFaces(slices);
-    } catch (e) {
-      console.error("Gagal mengolah skybox:", e);
-    } finally {
-      setIsProcessing(false);
+      const raw = localStorage.getItem(FACE_CONFIG_KEY);
+      if (raw) {
+        const saved = JSON.parse(raw);
+        const merged = cloneConfig(DEFAULT_FACE_CONFIG);
+        (Object.keys(merged) as SkyboxFace[]).forEach((k) => {
+          if (saved?.[k]) merged[k] = { ...merged[k], ...saved[k] };
+        });
+        setFaceConfig(merged);
+      }
+    } catch {
+      /* abaikan */
+    }
+  }, []);
+
+  const persistConfig = (cfg: Record<SkyboxFace, FaceConfig>) => {
+    try {
+      localStorage.setItem(FACE_CONFIG_KEY, JSON.stringify(cfg));
+    } catch {
+      /* abaikan */
     }
   };
 
+  const updateFaceConfig = (face: SkyboxFace, patch: Partial<FaceConfig>) => {
+    setFaceConfig((prev) => {
+      const next = { ...prev, [face]: { ...prev[face], ...patch } };
+      persistConfig(next);
+      return next;
+    });
+  };
+
+  const replaceFaceConfig = (next: Record<SkyboxFace, FaceConfig>) => {
+    const cloned = cloneConfig(next);
+    setFaceConfig(cloned);
+    persistConfig(cloned);
+  };
+
+  const swapLeftRight = () => {
+    const next = cloneConfig(faceConfig);
+    next.lf.source = faceConfig.rt.source;
+    next.rt.source = faceConfig.lf.source;
+    replaceFaceConfig(next);
+  };
+
+  // ---------- Bridge dari tools lain ----------
   useEffect(() => {
     getAndClearIndexedDB().then((b) => {
-      if (b) processEquirectangularImage(b);
+      if (b) setSourceUrl(b);
     });
   }, []);
 
+  // ---------- Convert (debounced, anti-balapan) ----------
   useEffect(() => {
-    if (panoramaUrl) {
-      processEquirectangularImage(panoramaUrl, yawOffset);
-    }
-  }, [yawOffset]);
+    if (!sourceUrl) return;
+    const id = ++convertReqRef.current;
+    setIsProcessing(true);
 
-  const handleAutoUpload = async () => {
-    const targetFaces = slicedFaces || (stitchImages.ft ? stitchImages : null);
+    const timer = setTimeout(async () => {
+      try {
+        const faces = await convertEquirectToSkybox(sourceUrl, 1024, yawOffset);
+        if (id === convertReqRef.current) setIdealFaces(faces);
+      } catch (e) {
+        console.error("Gagal mengolah skybox:", e);
+      } finally {
+        if (id === convertReqRef.current) setIsProcessing(false);
+      }
+    }, 300);
+
+    return () => clearTimeout(timer);
+  }, [sourceUrl, yawOffset]);
+
+  // ---------- Terapin penyesuaian slot Roblox ----------
+  useEffect(() => {
+    if (!idealFaces) {
+      setExportFaces(null);
+      return;
+    }
+    const id = ++exportReqRef.current;
+    applyFaceConfig(idealFaces, faceConfig)
+      .then((res) => {
+        if (id === exportReqRef.current) setExportFaces(res);
+      })
+      .catch((e) => console.error("Gagal terapin penyesuaian face:", e));
+  }, [idealFaces, faceConfig]);
+
+  // ---------- Hasil upload lama jadi basi kalau gambar/config berubah ----------
+  useEffect(() => {
+    setRobloxIds(emptyIds());
+    setUploadStatus(emptyStatus());
+  }, [exportFaces, stitchImages]);
+
+  const getTargetFaces = (): Record<SkyboxFace, string> | null => {
+    if (activeTab === "stitch") {
+      return Object.values(stitchImages).some(Boolean) ? stitchImages : null;
+    }
+    return exportFaces;
+  };
+
+  const handleTestImage = () => {
+    setActiveTab("convert");
+    setYawOffset(0);
+    setSourceUrl(generateTestPanorama(4096));
+  };
+
+  const handleAutoUpload = async (onlyFailed: boolean = false) => {
+    const targetFaces = getTargetFaces();
     if (!targetFaces) return;
 
     const savedCreds = localStorage.getItem("crest_roblox_credentials");
@@ -331,36 +418,54 @@ export default function SkyboxConverterPage() {
       return;
     }
 
+    const order: SkyboxFace[] = ["ft", "bk", "lf", "rt", "up", "dn"];
+    const queue = order.filter(
+      (f) => targetFaces[f] && (!onlyFailed || uploadStatus[f].state !== "success")
+    );
+    if (queue.length === 0) return;
+
     setIsUploading(true);
-    const faces: SkyboxFace[] = ["ft", "bk", "lf", "rt", "up", "dn"];
-    const updatedIds = { ...robloxIds };
+    if (!onlyFailed) {
+      setRobloxIds(emptyIds());
+      setUploadStatus(emptyStatus());
+    }
+
     const timeStamp = Date.now();
 
-    for (let i = 0; i < faces.length; i++) {
-      const face = faces[i];
-      if (!targetFaces[face]) continue;
-
-      setUploadProgress(`Uploading ${face.toUpperCase()} (${i + 1}/6)...`);
-
-      const blob = dataURItoBlob(targetFaces[face]);
-      const file = new File([blob], `Skybox_${face.toUpperCase()}.png`, { type: "image/png" });
-
-      const formData = new FormData();
-      formData.append("apiKey", creds.apiKey);
-      formData.append("creatorType", creds.creatorType);
-      formData.append("creatorId", creds.creatorId);
-      formData.append("name", `CrestSky_${face.toUpperCase()}_${timeStamp}`);
-      formData.append("file", file);
+    for (let i = 0; i < queue.length; i++) {
+      const face = queue[i];
+      setUploadStatus((prev) => ({ ...prev, [face]: { state: "uploading" } }));
+      setUploadProgress(`Uploading ${face.toUpperCase()} (${i + 1}/${queue.length})...`);
 
       try {
+        const blob = dataURItoBlob(targetFaces[face]);
+        const file = new File([blob], `Skybox_${face.toUpperCase()}.png`, { type: "image/png" });
+
+        const formData = new FormData();
+        formData.append("apiKey", creds.apiKey);
+        formData.append("creatorType", creds.creatorType);
+        formData.append("creatorId", creds.creatorId);
+        formData.append("name", `CrestSky_${face.toUpperCase()}_${timeStamp}`);
+        formData.append("file", file);
+
         const res = await fetch("/api/roblox/upload", { method: "POST", body: formData });
-        const data = await res.json();
+        const data = await res.json().catch(() => ({}));
+
         if (res.ok && data.assetId) {
-          updatedIds[face] = data.assetId;
-          setRobloxIds({ ...updatedIds });
+          setRobloxIds((prev) => ({ ...prev, [face]: String(data.assetId) }));
+          setUploadStatus((prev) => ({
+            ...prev,
+            [face]: { state: "success", moderation: data.moderationState, assetType: data.assetType },
+          }));
+        } else {
+          setUploadStatus((prev) => ({
+            ...prev,
+            [face]: { state: "error", message: data.error || `Gagal upload (HTTP ${res.status})` },
+          }));
         }
       } catch (err) {
-        console.error(`Error upload ${face}:`, err);
+        const message = err instanceof Error ? err.message : "Gagal terhubung ke server";
+        setUploadStatus((prev) => ({ ...prev, [face]: { state: "error", message } }));
       }
     }
 
@@ -368,8 +473,16 @@ export default function SkyboxConverterPage() {
     setUploadProgress(null);
   };
 
+  const allIdsReady = FACE_LIST.every((f) => robloxIds[f.key]);
+  const uploadTouched = Object.values(uploadStatus).some((s) => s.state !== "idle");
+  const hasFailed = Object.values(uploadStatus).some((s) => s.state === "error");
+  const pendingModeration = Object.values(uploadStatus).some(
+    (s) => s.state === "success" && s.moderation && s.moderation !== "APPROVED"
+  );
+  const generatedLua = allIdsReady ? buildLua(robloxIds) : "";
+
   const handleZipDownload = async () => {
-    const targetFaces = slicedFaces || (stitchImages.ft ? stitchImages : null);
+    const targetFaces = getTargetFaces();
     if (!targetFaces) return;
 
     const zip = new JSZip();
@@ -381,8 +494,8 @@ export default function SkyboxConverterPage() {
       }
     });
 
-    const luaTemplate = `-- Generated by CrestTools V10\nlocal sky = Instance.new("Sky")\nsky.Name = "CustomSky"\nsky.SkyboxBk = "rbxassetid://${robloxIds.bk || "YOUR_BK_ID"}"\nsky.SkyboxFt = "rbxassetid://${robloxIds.ft || "YOUR_FT_ID"}"\nsky.SkyboxLf = "rbxassetid://${robloxIds.lf || "YOUR_LF_ID"}"\nsky.SkyboxRt = "rbxassetid://${robloxIds.rt || "YOUR_RT_ID"}"\nsky.SkyboxUp = "rbxassetid://${robloxIds.up || "YOUR_UP_ID"}"\nsky.SkyboxDn = "rbxassetid://${robloxIds.dn || "YOUR_DN_ID"}"\nsky.Parent = game.Lighting\n`;
-    folder?.file("SkyboxScript.lua", luaTemplate);
+    // Script cuma masuk ZIP kalau semua ID sudah ada (hasil upload)
+    if (allIdsReady) folder?.file("SkyboxScript.lua", generatedLua);
 
     const content = await zip.generateAsync({ type: "blob" });
     const url = URL.createObjectURL(content);
@@ -390,18 +503,8 @@ export default function SkyboxConverterPage() {
     a.href = url;
     a.download = `crest-skybox-v10-${Date.now()}.zip`;
     a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
   };
-
-  const generatedLua = `local sky = Instance.new("Sky")
-sky.Name = "CustomSky"
-sky.SkyboxBk = "rbxassetid://${robloxIds.bk || "YOUR_BK_ID"}"
-sky.SkyboxFt = "rbxassetid://${robloxIds.ft || "YOUR_FT_ID"}"
-sky.SkyboxLf = "rbxassetid://${robloxIds.lf || "YOUR_LF_ID"}"
-sky.SkyboxRt = "rbxassetid://${robloxIds.rt || "YOUR_RT_ID"}"
-sky.SkyboxUp = "rbxassetid://${robloxIds.up || "YOUR_UP_ID"}"
-sky.SkyboxDn = "rbxassetid://${robloxIds.dn || "YOUR_DN_ID"}"
-sky.SunTextureId = "rbxassetid://${robloxIds.ft || "0"}"
-sky.Parent = game.Lighting`;
 
   return (
     <div className="min-h-screen bg-[#080b11] text-slate-100">
@@ -434,6 +537,9 @@ sky.Parent = game.Lighting`;
               Skybox Converter 3D{" "}
               <span className="text-[10px] align-super px-2.5 py-1 rounded-md bg-emerald-500 text-black font-extrabold tracking-wider">
                 V10 ULTIMATE
+              </span>{" "}
+              <span className="text-[10px] align-super px-2.5 py-1 rounded-md bg-sky-500/20 text-sky-300 border border-sky-500/40 font-mono font-bold tracking-wider">
+                {BUILD_TAG}
               </span>
             </h1>
             <p className="text-sm text-slate-400">
@@ -494,7 +600,7 @@ sky.Parent = game.Lighting`;
                     const f = e.target.files?.[0];
                     if (f) {
                       const r = new FileReader();
-                      r.onload = (ev) => processEquirectangularImage(ev.target?.result as string);
+                      r.onload = (ev) => setSourceUrl(ev.target?.result as string);
                       r.readAsDataURL(f);
                     }
                   }}
@@ -508,6 +614,14 @@ sky.Parent = game.Lighting`;
                   <Upload className="w-8 h-8 mx-auto mb-2 text-slate-500" />
                   <p className="text-xs font-bold">Klik Upload Panorama (Rasio 2:1)</p>
                 </div>
+
+                <button
+                  onClick={handleTestImage}
+                  className="mt-3 w-full px-4 py-2.5 rounded-xl bg-slate-900 border border-slate-800 hover:border-emerald-500/60 text-xs font-bold text-slate-200 flex items-center justify-center gap-2 transition-all"
+                >
+                  <FlaskConical className="w-4 h-4 text-emerald-400" />
+                  Generate Gambar Tes (Kalibrasi)
+                </button>
 
                 {/* HORIZON YAW ROTATION SLIDER */}
                 <div className="mt-6 pt-6 border-t border-slate-800">
@@ -524,7 +638,7 @@ sky.Parent = game.Lighting`;
                     className="w-full accent-emerald-500"
                   />
                   <p className="text-[10px] text-slate-500 mt-1">
-                    Geser slider untuk memindahkan posisi jahitan ke sudut lain.
+                    Geser slider untuk memutar arah panorama (pindahin posisi jahitan / arah depan).
                   </p>
                 </div>
 
@@ -568,13 +682,15 @@ sky.Parent = game.Lighting`;
                   id="viewer-full"
                   className="w-full h-[380px] bg-black rounded-xl overflow-hidden border border-slate-800"
                 >
-                  <Skybox360Viewer 
-                    slicedFaces={slicedFaces} 
-                    panoramaUrl={panoramaUrl} 
-                    autoRotate={autoRotate} 
-                    containerId="viewer-full" 
+                  <SkyboxPreview
+                    faces={idealFaces}
+                    panoramaUrl={sourceUrl}
+                    autoRotate={autoRotate}
                   />
                 </div>
+                <p className="text-[10px] text-slate-500 px-3 pt-2">
+                  Preview nunjukin hasil sky yang seharusnya. Scroll mouse = zoom, drag = putar.
+                </p>
               </div>
             </div>
 
@@ -583,10 +699,10 @@ sky.Parent = game.Lighting`;
               <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
                 <span className="text-xs font-mono text-slate-400">3. HASIL 6 SISI + EXPORT CLOUD</span>
 
-                {slicedFaces && (
+                {exportFaces && (
                   <div className="flex flex-wrap gap-2">
                     <button
-                      onClick={handleAutoUpload}
+                      onClick={() => handleAutoUpload(false)}
                       disabled={isUploading}
                       className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-[#0ea5e9] to-[#f97316] text-white font-bold text-xs flex items-center gap-2 shadow-lg hover:opacity-90 disabled:opacity-50 transition-all active:scale-95"
                     >
@@ -614,27 +730,24 @@ sky.Parent = game.Lighting`;
                 )}
               </div>
 
-              {slicedFaces ? (
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4 mb-8">
-                  {(
-                    [
-                      { key: "up", label: "SkyboxUp" },
-                      { key: "dn", label: "SkyboxDn" },
-                      { key: "lf", label: "SkyboxLf" },
-                      { key: "rt", label: "SkyboxRt" },
-                      { key: "ft", label: "SkyboxFt" },
-                      { key: "bk", label: "SkyboxBk" },
-                    ] as const
-                  ).map((f) => (
+              {exportFaces ? (
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
+                  {FACE_LIST.map((f) => (
                     <div key={f.key} className="bg-slate-950 p-3 rounded-xl border border-slate-800">
                       <div className="aspect-square rounded-lg overflow-hidden border border-slate-800 mb-2">
-                        <img src={slicedFaces[f.key]} alt={f.label} className="w-full h-full object-cover" />
+                        <img src={exportFaces[f.key]} alt={f.label} className="w-full h-full object-cover" />
                       </div>
-                      <span className="block text-center text-xs font-mono font-bold mb-2">{f.label}</span>
+                      <span className="block text-center text-xs font-mono font-bold">Slot {f.label}</span>
+                      <span className="block text-center text-[10px] font-mono text-slate-500 mb-2">
+                        {faceConfig[f.key].source === f.key
+                          ? "isi: arah " + f.key.toUpperCase()
+                          : "← isi: arah " + faceConfig[f.key].source.toUpperCase()}
+                        {faceConfig[f.key].rotate ? ` · ${faceConfig[f.key].rotate}°` : ""}
+                      </span>
                       <button
                         onClick={() => {
                           const a = document.createElement("a");
-                          a.href = slicedFaces[f.key];
+                          a.href = exportFaces[f.key];
                           a.download = `${f.label}.png`;
                           a.click();
                         }}
@@ -652,6 +765,105 @@ sky.Parent = game.Lighting`;
                 </div>
               )}
             </div>
+
+            {/* PANEL PENYESUAIAN SLOT ROBLOX */}
+            {idealFaces && (
+              <div className="bg-[#161f32]/80 border border-slate-800 rounded-2xl p-6 mb-8">
+                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-2">
+                  <span className="text-xs font-mono text-slate-400">4. PENYESUAIAN SLOT ROBLOX (per face)</span>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={swapLeftRight}
+                      className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-[11px] font-bold text-slate-200"
+                    >
+                      Tuker Lf ↔ Rt
+                    </button>
+                    <button
+                      onClick={() => replaceFaceConfig(NEUTRAL_FACE_CONFIG)}
+                      className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-[11px] font-bold text-slate-200"
+                    >
+                      Netral
+                    </button>
+                    <button
+                      onClick={() => replaceFaceConfig(DEFAULT_FACE_CONFIG)}
+                      className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-[11px] font-bold text-slate-200 flex items-center gap-1"
+                    >
+                      <RotateCcw className="w-3 h-3" />
+                      Reset (Roblox)
+                    </button>
+                  </div>
+                </div>
+                <p className="text-[11px] text-slate-500 mb-4">
+                  Default sudah pakai hasil tes Studio: Bk ← Lf, Lf ← Bk, Rt ← Ft, Ft ← Rt. Tersimpan otomatis di
+                  browser. Rotasi = searah jarum jam, dilakukan setelah flip.
+                </p>
+
+                <div className="space-y-2">
+                  {FACE_LIST.map((f) => {
+                    const cfg = faceConfig[f.key];
+                    return (
+                      <div
+                        key={f.key}
+                        className="grid grid-cols-2 sm:grid-cols-5 gap-3 items-center bg-slate-950 border border-slate-800 rounded-xl px-3 py-2"
+                      >
+                        <span className="text-xs font-mono font-bold text-emerald-400">Slot {f.label}</span>
+
+                        <label className="text-[10px] font-mono text-slate-400 flex flex-col gap-1">
+                          Ambil gambar dari
+                          <select
+                            value={cfg.source}
+                            onChange={(e) => updateFaceConfig(f.key, { source: e.target.value as SkyboxFace })}
+                            className="bg-[#080b11] border border-slate-700 rounded-lg px-2 py-1 text-xs text-slate-200"
+                          >
+                            {FACE_LIST.map((o) => (
+                              <option key={o.key} value={o.key}>
+                                {o.label}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+
+                        <label className="text-[10px] font-mono text-slate-400 flex flex-col gap-1">
+                          Rotasi
+                          <select
+                            value={cfg.rotate}
+                            onChange={(e) =>
+                              updateFaceConfig(f.key, { rotate: Number(e.target.value) as FaceConfig["rotate"] })
+                            }
+                            className="bg-[#080b11] border border-slate-700 rounded-lg px-2 py-1 text-xs text-slate-200"
+                          >
+                            <option value={0}>0°</option>
+                            <option value={90}>90°</option>
+                            <option value={180}>180°</option>
+                            <option value={270}>270°</option>
+                          </select>
+                        </label>
+
+                        <label className="text-[11px] font-mono text-slate-300 flex items-center gap-2">
+                          <input
+                            type="checkbox"
+                            checked={cfg.flipX}
+                            onChange={(e) => updateFaceConfig(f.key, { flipX: e.target.checked })}
+                            className="accent-emerald-500"
+                          />
+                          Flip X
+                        </label>
+
+                        <label className="text-[11px] font-mono text-slate-300 flex items-center gap-2">
+                          <input
+                            type="checkbox"
+                            checked={cfg.flipY}
+                            onChange={(e) => updateFaceConfig(f.key, { flipY: e.target.checked })}
+                            className="accent-emerald-500"
+                          />
+                          Flip Y
+                        </label>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </>
         )}
 
@@ -659,6 +871,9 @@ sky.Parent = game.Lighting`;
         {activeTab === "stitch" && (
           <div className="bg-[#161f32]/80 border border-slate-800 rounded-2xl p-6 mb-8">
             <h3 className="text-sm font-bold font-mono text-slate-300 mb-4">Upload 6 Sisi Terpisah</h3>
+            <p className="text-[11px] text-slate-500 mb-4">
+              Mode ini upload gambar apa adanya ke slot yang sama (tanpa penyesuaian otomatis).
+            </p>
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4 mb-6">
               {(["up", "dn", "lf", "rt", "ft", "bk"] as SkyboxFace[]).map((face) => (
                 <div key={face} className="bg-slate-950 p-3 rounded-xl border border-slate-800 text-center">
@@ -677,7 +892,8 @@ sky.Parent = game.Lighting`;
                       const file = e.target.files?.[0];
                       if (file) {
                         const r = new FileReader();
-                        r.onload = (ev) => setStitchImages({ ...stitchImages, [face]: ev.target?.result as string });
+                        r.onload = (ev) =>
+                          setStitchImages((prev) => ({ ...prev, [face]: ev.target?.result as string }));
                         r.readAsDataURL(file);
                       }
                     }}
@@ -689,13 +905,25 @@ sky.Parent = game.Lighting`;
 
             <div className="flex gap-3">
               <button
-                onClick={handleAutoUpload}
+                onClick={() => handleAutoUpload(false)}
                 disabled={isUploading}
-                className="px-5 py-2.5 rounded-xl bg-emerald-500 text-black font-bold text-xs flex items-center gap-2 shadow-lg"
+                className="px-5 py-2.5 rounded-xl bg-emerald-500 text-black font-bold text-xs flex items-center gap-2 shadow-lg disabled:opacity-50"
               >
-                <CloudUpload className="w-4 h-4" /> Auto Upload 6 Sisi ke Roblox
+                {isUploading ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    {uploadProgress || "Uploading..."}
+                  </>
+                ) : (
+                  <>
+                    <CloudUpload className="w-4 h-4" /> Auto Upload 6 Sisi ke Roblox
+                  </>
+                )}
               </button>
-              <button onClick={handleZipDownload} className="px-4 py-2.5 rounded-xl bg-slate-900 border border-slate-800 text-xs font-bold">
+              <button
+                onClick={handleZipDownload}
+                className="px-4 py-2.5 rounded-xl bg-slate-900 border border-slate-800 text-xs font-bold"
+              >
                 Download ZIP
               </button>
             </div>
@@ -717,7 +945,9 @@ sky.Parent = game.Lighting`;
                     <div>
                       <div className="flex justify-between items-start mb-1">
                         <span className="text-xs font-bold text-white">{p.name}</span>
-                        <span className="text-[10px] px-2 py-0.5 rounded bg-slate-800 text-slate-400 font-mono">{p.category}</span>
+                        <span className="text-[10px] px-2 py-0.5 rounded bg-slate-800 text-slate-400 font-mono">
+                          {p.category}
+                        </span>
                       </div>
                       <p className="text-[11px] text-slate-400 font-mono bg-slate-900 p-2 rounded border border-slate-800/80 line-clamp-2">
                         {p.prompt}
@@ -732,13 +962,17 @@ sky.Parent = game.Lighting`;
                         }}
                         className="px-3 py-1 rounded bg-slate-800 hover:bg-slate-700 text-[10px] font-mono text-slate-200 flex items-center gap-1"
                       >
-                        {copiedPromptId === p.id ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                        {copiedPromptId === p.id ? (
+                          <Check className="w-3 h-3 text-emerald-400" />
+                        ) : (
+                          <Copy className="w-3 h-3" />
+                        )}
                         {copiedPromptId === p.id ? "Tersalin" : "Copy Prompt"}
                       </button>
                       <button
                         onClick={() => {
                           setActiveTab("convert");
-                          processEquirectangularImage(p.previewUrl);
+                          setSourceUrl(p.previewUrl);
                         }}
                         className="px-3 py-1 rounded bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 text-[10px] font-bold"
                       >
@@ -752,42 +986,111 @@ sky.Parent = game.Lighting`;
           </div>
         )}
 
-        {/* LUA SCRIPT GENERATOR BOX */}
-        <div className="p-5 rounded-2xl bg-slate-950 border border-slate-800">
-          <div className="flex items-center justify-between mb-4">
-            <h4 className="text-sm font-bold flex items-center gap-2">
-              <Code2 className="w-4 h-4 text-emerald-400" />
-              Roblox Luau Script Generator (Auto-Filled)
-            </h4>
-            <button
-              onClick={() => {
-                navigator.clipboard.writeText(generatedLua);
-                setCopiedLua(true);
-                setTimeout(() => setCopiedLua(false), 2000);
-              }}
-              className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs flex items-center gap-1 transition-colors"
-            >
-              {copiedLua ? <Check className="w-3 h-3 text-green-400" /> : <Copy className="w-3 h-3" />}
-              {copiedLua ? "Tersalin" : "Salin Script"}
-            </button>
-          </div>
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-4">
-            {(Object.keys(robloxIds) as SkyboxFace[]).map((k) => (
-              <div key={k}>
-                <label className="text-[10px] font-mono text-slate-500">{k.toUpperCase()} ID</label>
-                <input
-                  value={robloxIds[k]}
-                  onChange={(e) => setRobloxIds({ ...robloxIds, [k]: e.target.value })}
-                  placeholder={`ID untuk ${k}`}
-                  className="w-full mt-1 px-3 py-2 rounded-lg bg-[#080b11] border border-slate-700 text-xs focus:outline-none focus:border-emerald-500 transition-colors"
-                />
+        {/* STATUS UPLOAD (muncul setelah upload dimulai) */}
+        {uploadTouched && (
+          <div className="p-5 rounded-2xl bg-slate-950 border border-slate-800 mb-8">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+              <h4 className="text-sm font-bold flex items-center gap-2">
+                <CloudUpload className="w-4 h-4 text-[#0ea5e9]" />
+                Status Upload ke Roblox
+              </h4>
+              {Object.values(uploadStatus).some((s) => s.state === "success") && (
+                <span
+                  className={`text-[10px] font-mono px-2 py-1 rounded-md border ${
+                    Object.values(uploadStatus).some((s) => s.assetType)
+                      ? "text-emerald-300 border-emerald-500/40 bg-emerald-500/10"
+                      : "text-red-300 border-red-500/40 bg-red-500/10"
+                  }`}
+                >
+                  {Object.values(uploadStatus).some((s) => s.assetType)
+                    ? "route.ts: versi baru ✓"
+                    : "route.ts: VERSI LAMA (belum ke-replace)"}
+                </span>
+              )}
+              {hasFailed && !isUploading && (
+                <button
+                  onClick={() => handleAutoUpload(true)}
+                  className="px-3 py-1.5 rounded-lg bg-orange-500/20 text-orange-300 hover:bg-orange-500/30 text-xs font-bold flex items-center gap-1 transition-colors"
+                >
+                  <RefreshCcw className="w-3 h-3" />
+                  Coba Lagi yang Gagal
+                </button>
+              )}
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+              {FACE_LIST.map((f) => {
+                const st = uploadStatus[f.key];
+                return (
+                  <div
+                    key={f.key}
+                    className="bg-[#080b11] border border-slate-800 rounded-xl px-3 py-2 flex items-start gap-2"
+                  >
+                    <div className="mt-0.5">
+                      {st.state === "success" && <CheckCircle2 className="w-4 h-4 text-emerald-400" />}
+                      {st.state === "error" && <XCircle className="w-4 h-4 text-red-400" />}
+                      {st.state === "uploading" && <Loader2 className="w-4 h-4 animate-spin text-[#0ea5e9]" />}
+                      {st.state === "idle" && <div className="w-4 h-4 rounded-full border border-slate-700" />}
+                    </div>
+                    <div className="min-w-0">
+                      <div className="text-xs font-mono font-bold">{f.label}</div>
+                      {st.state === "success" && (
+                        <div className="text-[11px] font-mono text-slate-400 break-all">
+                          ID {robloxIds[f.key]}
+                          {st.assetType ? ` · ${st.assetType}` : ""}
+                          {st.moderation ? ` · ${st.moderation}` : ""}
+                        </div>
+                      )}
+                      {st.state === "error" && (
+                        <div className="text-[11px] text-red-300 break-words">{st.message}</div>
+                      )}
+                      {st.state === "uploading" && (
+                        <div className="text-[11px] text-slate-500">Mengupload...</div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {pendingModeration && (
+              <div className="mt-3 flex items-start gap-2 text-[11px] text-amber-300 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2">
+                <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                Beberapa asset belum berstatus APPROVED. Sky bisa belum muncul di Roblox sampai moderasi selesai.
               </div>
-            ))}
+            )}
           </div>
-          <pre className="text-[12px] font-mono bg-[#080b11] p-4 rounded-xl border border-slate-800 overflow-x-auto text-slate-300">
-            {generatedLua}
-          </pre>
-        </div>
+        )}
+
+        {/* LUA SCRIPT: baru muncul kalau ke-6 ID sudah berhasil di-upload */}
+        {allIdsReady && (
+          <div className="p-5 rounded-2xl bg-slate-950 border border-emerald-500/30">
+            <div className="flex items-center justify-between mb-2">
+              <h4 className="text-sm font-bold flex items-center gap-2">
+                <Code2 className="w-4 h-4 text-emerald-400" />
+                Script Roblox Siap Pakai
+              </h4>
+              <button
+                onClick={() => {
+                  navigator.clipboard.writeText(generatedLua);
+                  setCopiedLua(true);
+                  setTimeout(() => setCopiedLua(false), 2000);
+                }}
+                className="px-3 py-1.5 rounded-lg bg-emerald-500 text-black text-xs font-bold flex items-center gap-1 transition-colors hover:bg-emerald-400"
+              >
+                {copiedLua ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+                {copiedLua ? "Tersalin" : "Salin Script"}
+              </button>
+            </div>
+            <p className="text-[11px] text-slate-500 mb-3">
+              ID sudah terisi otomatis. Paste di Studio: View → Command Bar → Enter. Cek jendela Output buat lihat
+              hasil per sisi.
+            </p>
+            <pre className="text-[12px] font-mono bg-[#080b11] p-4 rounded-xl border border-slate-800 overflow-x-auto text-slate-300 max-h-[420px]">
+              {generatedLua}
+            </pre>
+          </div>
+        )}
       </main>
     </div>
   );
