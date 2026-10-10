@@ -43,14 +43,15 @@ export const convertEquirectToSkybox = async (
 
             let vx = 0, vy = 0, vz = 0;
 
-            // FIX CLAUDE: Matriks Absolut Native Roblox
+            // FIX ROTASI MELINGKAR 360 DERAJAT + KUTUB ATAS/BAWAH (SESUAI KESEPAKATAN)
             switch (face) {
-              case "ft": vx =  nx; vy = -ny; vz = -1;  break;
-              case "rt": vx =  1;  vy = -ny; vz =  nx; break;
-              case "bk": vx = -nx; vy = -ny; vz =  1;  break;
-              case "lf": vx = -1;  vy = -ny; vz = -nx; break;
-              case "up": vx =  nx; vy =  1;  vz = -ny; break;
-              case "dn": vx =  nx; vy = -1;  vz =  ny; break;
+              case "ft": vx = -1;  vy = -ny; vz = -nx; break; // Depan (-X)
+              case "rt": vx =  nx; vy = -ny; vz = -1;  break; // Kanan (-Z)
+              case "bk": vx =  1;  vy = -ny; vz =  nx; break; // Belakang (+X)
+              case "lf": vx = -nx; vy = -ny; vz =  1;  break; // Kiri (+Z)
+
+              case "up": vx = -ny; vy =  1;  vz = -nx; break; // Atas (Mengunci ke -X)
+              case "dn": vx =  ny; vy = -1;  vz = -nx; break; // Bawah (Mengunci ke -X)
             }
 
             const r = Math.sqrt(vx * vx + vy * vy + vz * vz);
