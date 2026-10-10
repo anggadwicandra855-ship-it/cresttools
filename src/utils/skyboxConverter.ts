@@ -1,15 +1,15 @@
 // ============================================================
-// Crest Tools - Skybox Converter (v3)
+// Crest Tools - Skybox Converter (v4)
 // Equirectangular 2:1  ->  6 face skybox
 //
-// Frame dunia (Roblox): +Y atas, +X kanan, -Z depan
+// Frame dunia converter: +Y atas, +X kanan, -Z depan
 // Yaw 0 => titik tengah panorama (u = 0.5) jadi arah DEPAN (-Z)
 // Seam panorama (u = 0 / 1) jatuh di arah BELAKANG (+Z)
 //
 // ALUR:
-//   1. convertEquirectToSkybox()  -> face "ideal" (tanpa koreksi, dipakai preview)
-//   2. applyFaceConfig()          -> face "export" (sudah dikoreksi buat Roblox,
-//                                    dipakai ZIP + upload). Murah, tanpa sampling ulang.
+//   1. convertEquirectToSkybox()  -> face "ideal" (dipakai preview)
+//   2. applyFaceConfig()          -> face "export" (sudah disesuaikan ke slot Roblox,
+//                                    dipakai ZIP + upload). Lossless, tanpa sampling ulang.
 // ============================================================
 
 export type SkyboxFace = "up" | "dn" | "lf" | "rt" | "ft" | "bk";
@@ -17,7 +17,7 @@ export type SkyboxFace = "up" | "dn" | "lf" | "rt" | "ft" | "bk";
 export const ALL_FACES: SkyboxFace[] = ["ft", "bk", "lf", "rt", "up", "dn"];
 
 export interface FaceConfig {
-  /** Gambar dari arah dunia mana yang dipakai untuk slot face ini. Tuker Lf/Rt = tuker `source`. */
+  /** Gambar dari arah converter mana yang dipakai untuk SLOT Roblox ini. */
   source: SkyboxFace;
   /** Rotasi gambar searah jarum jam (derajat), dilakukan SETELAH flip. */
   rotate: 0 | 90 | 180 | 270;
@@ -25,15 +25,28 @@ export interface FaceConfig {
   flipY: boolean;
 }
 
-/**
- * ============ TABEL KOREKSI PER FACE ============
- * Default = tanpa koreksi. Kalibrasi lewat panel di halaman, atau ubah di sini.
- */
-export const DEFAULT_FACE_CONFIG: Record<SkyboxFace, FaceConfig> = {
+/** Tanpa koreksi sama sekali (slot = arah converter). */
+export const NEUTRAL_FACE_CONFIG: Record<SkyboxFace, FaceConfig> = {
   ft: { source: "ft", rotate: 0, flipX: false, flipY: false },
   bk: { source: "bk", rotate: 0, flipX: false, flipY: false },
   lf: { source: "lf", rotate: 0, flipX: false, flipY: false },
   rt: { source: "rt", rotate: 0, flipX: false, flipY: false },
+  up: { source: "up", rotate: 0, flipX: false, flipY: false },
+  dn: { source: "dn", rotate: 0, flipX: false, flipY: false },
+};
+
+/**
+ * DEFAULT = hasil tes langsung di Roblox Studio:
+ *   slot Bk <- gambar lf   |  slot Lf <- gambar bk
+ *   slot Rt <- gambar ft   |  slot Ft <- gambar rt
+ *   Up & Dn tetap.
+ * Jadi ID yang di-upload sudah masuk slot yang benar, ga perlu tuker manual.
+ */
+export const DEFAULT_FACE_CONFIG: Record<SkyboxFace, FaceConfig> = {
+  ft: { source: "rt", rotate: 0, flipX: false, flipY: false },
+  bk: { source: "lf", rotate: 0, flipX: false, flipY: false },
+  lf: { source: "bk", rotate: 0, flipX: false, flipY: false },
+  rt: { source: "ft", rotate: 0, flipX: false, flipY: false },
   up: { source: "up", rotate: 0, flipX: false, flipY: false },
   dn: { source: "dn", rotate: 0, flipX: false, flipY: false },
 };
@@ -161,8 +174,7 @@ export const convertEquirectToSkybox = async (
 };
 
 // ------------------------------------------------------------
-// 2. Terapin koreksi Roblox (swap / rotate / flip) ke face ideal
-//    Lossless, tanpa sampling ulang -> cepat dipakai buat kalibrasi.
+// 2. Terapin penyesuaian slot Roblox (swap / rotate / flip)
 // ------------------------------------------------------------
 const isIdentity = (face: SkyboxFace, cfg: FaceConfig) =>
   cfg.source === face && cfg.rotate === 0 && !cfg.flipX && !cfg.flipY;
@@ -188,12 +200,12 @@ export const applyFaceConfig = async (
     canvas.height = size;
     const ctx = canvas.getContext("2d");
     if (!ctx) {
-      out[face] = faces[face];
+      out[face] = faces[cfg.source];
       continue;
     }
 
     ctx.imageSmoothingEnabled = false;
-    // Urutan: gambar di-flip dulu, lalu diputar searah jarum jam
+    // Urutan: flip dulu, lalu putar searah jarum jam
     ctx.translate(size / 2, size / 2);
     ctx.rotate((cfg.rotate * Math.PI) / 180);
     ctx.scale(cfg.flipX ? -1 : 1, cfg.flipY ? -1 : 1);
