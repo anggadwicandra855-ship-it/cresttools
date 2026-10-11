@@ -2,7 +2,6 @@
 
 import React, { useState, useEffect } from "react";
 import Link from "next/link";
-import Navbar from "@/components/layout/Navbar";
 import {
   Code2,
   ArrowLeft,
@@ -130,7 +129,7 @@ export default function LuaFormatterPage() {
 
   return (
     <div className="min-h-screen bg-[#080b11] text-slate-100 selection:bg-[#f97316] selection:text-white">
-      <Navbar />
+      
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
         <Link href="/tools" className="inline-flex items-center gap-2 text-xs font-mono text-slate-400 hover:text-[#0ea5e9] transition-colors mb-8 group">
           <ArrowLeft className="w-4 h-4 group-hover:-translate-x-1 transition-transform" />

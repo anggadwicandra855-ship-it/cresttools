@@ -2,7 +2,6 @@
 
 import React, { useState } from "react";
 import Link from "next/link";
-import Navbar from "@/components/layout/Navbar";
 import {
   Palette,
   ArrowLeft,
@@ -100,7 +99,7 @@ export default function ColorPalettePage() {
 
   return (
     <div className="min-h-screen bg-[#080b11] text-slate-100 selection:bg-[#f97316] selection:text-white">
-      <Navbar />
+    
 
       <main className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
         {/* Back Button */}
