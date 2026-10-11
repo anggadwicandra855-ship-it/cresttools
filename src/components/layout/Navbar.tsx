@@ -204,11 +204,11 @@ export default function Navbar() {
         <div className="flex items-center gap-2">
           {SHOW_LOGIN ? (
             <Link
-              href="/login"
-              className="hidden rounded-full border border-slate-700 bg-slate-900 px-4 py-1.5 text-xs font-bold text-white transition-colors hover:border-slate-600 hover:bg-slate-800 md:inline-flex"
-            >
-              Masuk
-            </Link>
+  href="/login"
+  className="px-4 py-2 rounded-xl bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-600 hover:to-blue-700 text-xs font-mono font-bold text-white shadow-lg shadow-sky-500/20 transition-all flex items-center gap-2"
+>
+  Masuk
+</Link>
           ) : (
             <span className="hidden rounded-full border border-[#f97316]/30 bg-[#f97316]/10 px-2.5 py-1 font-mono text-[10px] font-bold tracking-widest text-[#f97316] md:inline-flex">
               BETA

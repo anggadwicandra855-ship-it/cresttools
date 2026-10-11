@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import Link from "next/link";
 import "./globals.css";
 import Navbar from "@/components/layout/Navbar";
 
@@ -45,7 +46,11 @@ export const viewport: Viewport = {
   colorScheme: "dark",
 };
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   return (
     <html
       lang="id"
@@ -53,7 +58,24 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
     >
       <body className="min-h-full flex flex-col bg-[#080b11] text-slate-100">
         <Navbar />
-        {children}
+        
+        {/* Main Content Area */}
+        <main className="flex-1">{children}</main>
+
+        {/* FOOTER GLOBAL */}
+        <footer className="border-t border-slate-800/80 bg-[#080b11] py-8 px-4 text-center text-xs text-slate-500 z-10">
+          <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4 font-mono">
+            <p>© 2026 CrestTools. Hak Cipta Dilindungi.</p>
+            <div className="flex items-center gap-6">
+              <Link href="/privacy" className="hover:text-sky-400 transition-colors">
+                Kebijakan Privasi
+              </Link>
+              <Link href="/terms" className="hover:text-orange-400 transition-colors">
+                Syarat Layanan
+              </Link>
+            </div>
+          </div>
+        </footer>
       </body>
     </html>
   );
