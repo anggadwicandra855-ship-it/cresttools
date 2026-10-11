@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { supabase } from "@/lib/supabase";
 import { motion, AnimatePresence } from "framer-motion";
 import { ArrowLeft, Lock, Mail, User, Sparkles, Eye, EyeOff } from "lucide-react";
 
@@ -21,7 +22,20 @@ export default function LoginPage() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    alert(`Fitur autentikasi Supabase bakal aktif di Fase 3!\nMode: ${isSignUp ? "Daftar" : "Masuk"}`);
+    alert(`Fitur autentikasi email Supabase bakal aktif di tahap berikutnya!\nMode: ${isSignUp ? "Daftar" : "Masuk"}`);
+  };
+
+  const handleOAuthLogin = async (provider: "google" | "discord") => {
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider,
+      options: {
+        redirectTo: `${window.location.origin}`,
+      },
+    });
+
+    if (error) {
+      alert(`Gagal login: ${error.message}`);
+    }
   };
 
   return (
@@ -159,7 +173,7 @@ export default function LoginPage() {
                   whileHover={{ scale: 1.02, backgroundColor: "rgba(30, 41, 59, 0.8)" }}
                   whileTap={{ scale: 0.98 }}
                   type="button"
-                  onClick={() => alert("Login Google akan aktif di Fase 3 via Supabase")}
+                  onClick={() => handleOAuthLogin("google")}
                   className="flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-slate-950/60 border border-slate-800 text-xs font-semibold text-slate-200 transition-all"
                 >
                   <svg className="w-4 h-4" viewBox="0 0 24 24">
@@ -187,7 +201,7 @@ export default function LoginPage() {
                   whileHover={{ scale: 1.02, backgroundColor: "rgba(30, 41, 59, 0.8)" }}
                   whileTap={{ scale: 0.98 }}
                   type="button"
-                  onClick={() => alert("Login Discord akan aktif di Fase 3 via Supabase")}
+                  onClick={() => handleOAuthLogin("discord")}
                   className="flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-slate-950/60 border border-slate-800 text-xs font-semibold text-slate-200 transition-all"
                 >
                   <svg className="w-4 h-4 fill-[#5865F2]" viewBox="0 0 24 24">
