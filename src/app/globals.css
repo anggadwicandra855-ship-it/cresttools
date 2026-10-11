@@ -1,9 +1,62 @@
 @import "tailwindcss";
 
 @layer base {
+  :root {
+    color-scheme: dark;
+  }
+
+  html {
+    -webkit-tap-highlight-color: transparent;
+  }
+
   body {
     background-color: #080b11;
     color: #f8fafc;
     font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+  }
+}
+
+/* Animasi muncul dropdown / drawer navbar */
+@keyframes nav-pop {
+  from {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.nav-pop {
+  animation: nav-pop 0.16s ease-out;
+}
+
+/* Kartu dengan glow gradien saat hover (dipakai di Beranda) */
+.glow-card {
+  position: relative;
+  isolation: isolate; /* biar glow ga ketutup background halaman */
+}
+
+.glow-card::before {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  background: linear-gradient(120deg, #0ea5e9, #f97316, #0ea5e9);
+  border-radius: 16px;
+  opacity: 0;
+  transition: opacity 0.4s ease;
+  z-index: -1;
+  filter: blur(0px);
+}
+
+.glow-card:hover::before {
+  opacity: 0.8;
+  filter: blur(8px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nav-pop {
+    animation: none;
   }
 }

@@ -2,7 +2,6 @@
 
 import React, { useState, useEffect } from "react";
 import Link from "next/link";
-import Navbar from "@/components/layout/Navbar";
 import {
   ArrowLeft,
   Key,
@@ -15,17 +14,14 @@ import {
   Eye,
   EyeOff,
   Info,
-  Sparkles,
   ExternalLink,
+  AlertTriangle,
 } from "lucide-react";
-
-export interface RobloxCredentials {
-  apiKey: string;
-  creatorType: "User" | "Group";
-  creatorId: string;
-}
-
-export const STORAGE_KEY = "crest_roblox_credentials";
+import {
+  clearRobloxCredentials,
+  loadRobloxCredentials,
+  saveRobloxCredentials,
+} from "@/lib/robloxCredentials";
 
 export default function SettingsPage() {
   const [apiKey, setApiKey] = useState("");
@@ -33,46 +29,44 @@ export default function SettingsPage() {
   const [creatorId, setCreatorId] = useState("");
   const [showApiKey, setShowApiKey] = useState(false);
   const [isSaved, setIsSaved] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const saved = localStorage.getItem(STORAGE_KEY);
+    const saved = loadRobloxCredentials();
     if (saved) {
-      try {
-        const parsed: RobloxCredentials = JSON.parse(saved);
-        setApiKey(parsed.apiKey || "");
-        setCreatorType(parsed.creatorType || "User");
-        setCreatorId(parsed.creatorId || "");
-      } catch (e) {
-        console.error("Gagal membaca credentials dari localStorage", e);
-      }
+      setApiKey(saved.apiKey);
+      setCreatorType(saved.creatorType);
+      setCreatorId(saved.creatorId);
     }
   }, []);
 
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
-    const creds: RobloxCredentials = {
-      apiKey: apiKey.trim(),
-      creatorType,
-      creatorId: creatorId.trim(),
-    };
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(creds));
+    const id = creatorId.trim();
+
+    if (!/^\d+$/.test(id)) {
+      setError("ID harus berupa angka saja (bukan username).");
+      return;
+    }
+    setError(null);
+
+    saveRobloxCredentials({ apiKey: apiKey.trim(), creatorType, creatorId: id });
     setIsSaved(true);
     setTimeout(() => setIsSaved(false), 2500);
   };
 
   const handleClear = () => {
-    if (confirm("Yakin mau hapus credential Roblox dari browser ini, Bree?")) {
-      localStorage.removeItem(STORAGE_KEY);
+    if (confirm("Yakin mau hapus credential Roblox dari browser ini?")) {
+      clearRobloxCredentials();
       setApiKey("");
       setCreatorType("User");
       setCreatorId("");
+      setError(null);
     }
   };
 
   return (
-    <div className="min-h-screen bg-[#080b11] text-slate-100 selection:bg-[#0ea5e9] selection:text-white">
-      <Navbar />
-
+    <div className="flex-1 bg-[#080b11] text-slate-100 selection:bg-[#0ea5e9] selection:text-white">
       <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
         <Link
           href="/tools"
@@ -88,15 +82,13 @@ export default function SettingsPage() {
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h1 className="text-2xl sm:text-3xl font-black text-white tracking-wide">
-                Pengaturan API Roblox
-              </h1>
-              <span className="px-2.5 py-0.5 text-[10px] font-bold font-mono text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 rounded-md">
-                UNIVERSAL
+              <h1 className="text-2xl sm:text-3xl font-black text-white tracking-wide">Pengaturan API Roblox</h1>
+              <span className="px-2.5 py-0.5 text-[10px] font-bold font-mono text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-md">
+                BETA
               </span>
             </div>
             <p className="text-xs sm:text-sm text-slate-400 mt-1">
-              Simpan Open Cloud API Key untuk auto-upload otomatis ke Roblox Creator Dashboard.
+              Simpan Open Cloud API Key untuk auto-upload ke Roblox Creator Dashboard.
             </p>
           </div>
         </div>
@@ -105,18 +97,14 @@ export default function SettingsPage() {
           <div className="bg-[#161f32]/80 border border-slate-800 rounded-2xl p-6 shadow-xl backdrop-blur-md space-y-6">
             <div className="flex items-center justify-between pb-4 border-b border-slate-800">
               <span className="text-xs font-mono uppercase tracking-widest text-slate-400 flex items-center gap-2">
-                <ShieldCheck className="w-4 h-4 text-emerald-400" /> Keamanan Client-Side (100% Private)
+                <ShieldCheck className="w-4 h-4 text-emerald-400" /> Disimpan di browser ini
               </span>
-              <span className="text-[11px] font-mono text-slate-500">
-                Disimpan di LocalStorage
-              </span>
+              <span className="text-[11px] font-mono text-slate-500">localStorage</span>
             </div>
 
-            {/* Target Creator Type */}
+            {/* Tipe kreator */}
             <div>
-              <label className="block text-xs font-bold text-slate-300 mb-2">
-                Tipe Kreator Target
-              </label>
+              <label className="block text-xs font-bold text-slate-300 mb-2">Tipe Kreator Target</label>
               <div className="grid grid-cols-2 gap-3">
                 <button
                   type="button"
@@ -145,27 +133,27 @@ export default function SettingsPage() {
 
             {/* Creator ID */}
             <div>
-              <label className="block text-xs font-bold text-slate-300 mb-1">
-                {creatorType === "User" ? "User ID Roblox Lu" : "Group ID Roblox Lu"}
+              <label htmlFor="creator-id" className="block text-xs font-bold text-slate-300 mb-1">
+                {creatorType === "User" ? "User ID Roblox" : "Group ID Roblox"}
               </label>
               <input
+                id="creator-id"
                 type="text"
+                inputMode="numeric"
+                autoComplete="off"
                 value={creatorId}
                 onChange={(e) => setCreatorId(e.target.value)}
-                placeholder={
-                  creatorType === "User"
-                    ? "Contoh: 123456789 (UserID)"
-                    : "Contoh: 987654321 (GroupID)"
-                }
+                placeholder={creatorType === "User" ? "Contoh: 123456789 (User ID)" : "Contoh: 987654321 (Group ID)"}
                 className="w-full px-4 py-3 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white placeholder:text-slate-600 focus:outline-none focus:border-[#0ea5e9] transition-colors font-mono"
                 required
               />
+              {error && <p className="mt-2 text-[11px] text-red-400">{error}</p>}
             </div>
 
-            {/* API Key Input */}
+            {/* API key */}
             <div>
               <div className="flex items-center justify-between mb-1">
-                <label className="block text-xs font-bold text-slate-300">
+                <label htmlFor="api-key" className="block text-xs font-bold text-slate-300">
                   Roblox Open Cloud API Key
                 </label>
                 <a
@@ -179,15 +167,19 @@ export default function SettingsPage() {
               </div>
               <div className="relative">
                 <input
+                  id="api-key"
                   type={showApiKey ? "text" : "password"}
+                  autoComplete="off"
+                  spellCheck={false}
                   value={apiKey}
                   onChange={(e) => setApiKey(e.target.value)}
-                  placeholder="rbx_api_key_xxxxxxxxxxxxxxxxxxxxxxxx"
+                  placeholder="Tempel API key kamu di sini"
                   className="w-full px-4 py-3 pr-12 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white placeholder:text-slate-600 focus:outline-none focus:border-[#0ea5e9] transition-colors font-mono"
                   required
                 />
                 <button
                   type="button"
+                  aria-label={showApiKey ? "Sembunyikan API key" : "Tampilkan API key"}
                   onClick={() => setShowApiKey(!showApiKey)}
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 p-1"
                 >
@@ -196,19 +188,34 @@ export default function SettingsPage() {
               </div>
             </div>
 
-            {/* Info Box */}
+            {/* Syarat */}
             <div className="p-4 rounded-xl bg-slate-950/80 border border-slate-800 space-y-2">
               <p className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
-                <Info className="w-4 h-4 text-[#0ea5e9]" /> Syarat Akses API Key Roblox:
+                <Info className="w-4 h-4 text-[#0ea5e9]" /> Syarat API Key Roblox:
               </p>
               <ul className="text-[11px] text-slate-400 space-y-1 list-disc list-inside font-mono">
-                <li>Izin API (Permissions): Tambahkan <span className="text-emerald-400">Assets API (Write)</span>.</li>
-                <li>IP Restriction: Isi dengan <span className="text-amber-400">0.0.0.0/0</span> agar bisa diakses fleksibel dari Vercel/HP.</li>
+                <li>
+                  Izin API: tambahkan <span className="text-emerald-400">Assets API</span> dengan akses{" "}
+                  <span className="text-emerald-400">Read dan Write</span> (Read dipakai buat cek hasil upload).
+                </li>
+                <li>
+                  IP Restriction: <span className="text-amber-400">0.0.0.0/0</span> supaya bisa dipakai dari HP/Vercel.
+                  Karena itu, set tanggal kedaluwarsa key dan ganti kalau merasa bocor.
+                </li>
               </ul>
+            </div>
+
+            <div className="flex items-start gap-2 p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-[11px] text-amber-200 leading-relaxed">
+              <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+              <span>
+                API key disimpan di browser ini dan dikirim lewat server CrestTools hanya saat upload, lalu diteruskan
+                ke Roblox (tidak disimpan di server). Metode ini bersifat sementara dan akan diganti login Roblox
+                (OAuth). Jangan dipakai di perangkat bersama.
+              </span>
             </div>
           </div>
 
-          {/* Action Buttons */}
+          {/* Tombol */}
           <div className="flex items-center justify-between gap-4">
             <button
               type="button"
@@ -224,7 +231,7 @@ export default function SettingsPage() {
             >
               {isSaved ? (
                 <>
-                  <Check className="w-4 h-4 text-emerald-300" /> Tersimpan Sempurna!
+                  <Check className="w-4 h-4 text-emerald-300" /> Tersimpan!
                 </>
               ) : (
                 <>

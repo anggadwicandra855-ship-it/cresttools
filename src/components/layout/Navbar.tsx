@@ -1,184 +1,282 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import {
-  Home,
-  Wrench,
-  Settings,
-  Sparkles,
-  Key,
-  Menu,
-  X,
-  ShieldCheck,
-  ShieldAlert,
-} from "lucide-react";
+import { ChevronDown, Menu, X, ArrowRight } from "lucide-react";
+import Logo from "@/components/brand/Logo";
+import { LIVE_TOOLS } from "@/lib/tools";
+
+// Nyalakan kalau halaman /login sudah ada (Fase 2b).
+const SHOW_LOGIN = false;
 
 export default function Navbar() {
   const pathname = usePathname();
-  const [hasApiKey, setHasApiKey] = useState(false);
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const headerRef = useRef<HTMLElement>(null);
+  const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const anchorY = useRef(0);
 
-  // Cek status API Key dari LocalStorage
+  // Menu "terbuka" disimpan sebagai path tempat dia dibuka.
+  // Pindah halaman => path beda => menu otomatis tertutup (tanpa effect tambahan).
+  const [toolsPath, setToolsPath] = useState<string | null>(null);
+  const [mobilePath, setMobilePath] = useState<string | null>(null);
+  const toolsOpen = toolsPath === pathname;
+  const mobileOpen = mobilePath === pathname;
+
+  const [scrolled, setScrolled] = useState(false);
+  const [hidden, setHidden] = useState(false);
+
+  // ---------- Scroll: tipis di atas, ngumpet pas scroll turun, muncul pas scroll naik ----------
   useEffect(() => {
-    const checkCreds = () => {
-      const saved = localStorage.getItem("crest_roblox_credentials");
-      if (saved) {
-        try {
-          const parsed = JSON.parse(saved);
-          setHasApiKey(Boolean(parsed.apiKey && parsed.creatorId));
-        } catch {
-          setHasApiKey(false);
-        }
-      } else {
-        setHasApiKey(false);
+    anchorY.current = window.scrollY;
+    const onScroll = () => {
+      const y = window.scrollY;
+      setScrolled(y > 12);
+      if (y <= 80) {
+        setHidden(false);
+        anchorY.current = y;
+        return;
+      }
+      const diff = y - anchorY.current;
+      if (Math.abs(diff) > 10) {
+        setHidden(diff > 0);
+        anchorY.current = y;
       }
     };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
 
-    checkCreds();
-    window.addEventListener("storage", checkCreds);
-    return () => window.removeEventListener("storage", checkCreds);
-  }, [pathname]);
+  // ---------- Tutup menu: tekan Escape atau klik di luar ----------
+  useEffect(() => {
+    if (!toolsOpen && !mobileOpen) return;
 
-  const navLinks = [
-    { name: "Beranda", href: "/", icon: Home },
-    { name: "Tools Studio", href: "/tools", icon: Wrench },
-    { name: "Skybox 3D", href: "/tools/skybox-converter", icon: Sparkles },
-  ];
+    const closeAll = () => {
+      setToolsPath(null);
+      setMobilePath(null);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") closeAll();
+    };
+    const onPointerDown = (e: PointerEvent) => {
+      if (headerRef.current && !headerRef.current.contains(e.target as Node)) closeAll();
+    };
+
+    document.addEventListener("keydown", onKey);
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.removeEventListener("pointerdown", onPointerDown);
+    };
+  }, [toolsOpen, mobileOpen]);
+
+  useEffect(() => {
+    return () => {
+      if (closeTimer.current) clearTimeout(closeTimer.current);
+    };
+  }, []);
+
+  const openTools = () => {
+    if (closeTimer.current) clearTimeout(closeTimer.current);
+    setToolsPath(pathname);
+  };
+  const scheduleCloseTools = () => {
+    if (closeTimer.current) clearTimeout(closeTimer.current);
+    closeTimer.current = setTimeout(() => setToolsPath(null), 140);
+  };
+
+  const homeActive = pathname === "/";
+  const toolsActive = pathname.startsWith("/tools");
+
+  // Jangan ngumpet kalau ada menu yang lagi kebuka
+  const hide = hidden && !toolsOpen && !mobileOpen;
+
+  const underline = (active: boolean) =>
+    `pointer-events-none absolute inset-x-3 -bottom-0.5 h-px origin-left bg-gradient-to-r from-[#0ea5e9] to-[#f97316] transition-transform duration-300 ${
+      active ? "scale-x-100" : "scale-x-0 group-hover:scale-x-100"
+    }`;
 
   return (
-    <header className="sticky top-4 z-50 max-w-5xl mx-auto px-4 sm:px-6">
-      {/* Floating Apple-Style Glassmorphism Container */}
-      <nav className="relative flex items-center justify-between px-4 py-2.5 rounded-full bg-[#0d131f]/70 border border-slate-800/80 backdrop-blur-xl shadow-2xl shadow-black/50 transition-all duration-300 hover:border-slate-700/80">
-        
-        {/* Brand Logo */}
-        <Link href="/" className="flex items-center gap-2.5 pl-2 group">
-          <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-[#0ea5e9] via-[#38bdf8] to-[#f97316] p-[1.5px] shadow-lg shadow-[#0ea5e9]/20 group-hover:scale-105 transition-transform">
-            <div className="w-full h-full bg-[#080b11] rounded-full flex items-center justify-center">
-              <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#0ea5e9] to-[#f97316] font-black text-xs tracking-tighter">
-                CT
-              </span>
-            </div>
-          </div>
-          <span className="text-sm font-black tracking-wider text-white group-hover:text-[#0ea5e9] transition-colors">
-            Crest<span className="text-[#0ea5e9]">Tools</span>
-          </span>
+    <header
+      ref={headerRef}
+      className={`sticky top-3 z-50 mx-auto w-full max-w-5xl px-3 transition-transform duration-300 sm:px-6 ${
+        hide ? "-translate-y-[140%]" : "translate-y-0"
+      }`}
+    >
+      <nav
+        aria-label="Navigasi utama"
+        className={`relative flex items-center justify-between rounded-full border px-3 py-2 backdrop-blur-xl transition-colors duration-300 ${
+          scrolled
+            ? "border-white/10 bg-[#0d131f]/85 shadow-[0_10px_40px_rgba(0,0,0,0.55)]"
+            : "border-white/[0.07] bg-[#0d131f]/60 shadow-[0_8px_30px_rgba(0,0,0,0.4)]"
+        }`}
+      >
+        {/* highlight tipis di tepi atas (gaya kaca) */}
+        <span className="pointer-events-none absolute inset-x-10 top-0 h-px bg-gradient-to-r from-transparent via-white/25 to-transparent" />
+
+        {/* ---------- Brand ---------- */}
+        <Link
+          href="/"
+          aria-label="CrestTools — Beranda"
+          className="flex items-center rounded-full pl-1 pr-2 transition-transform hover:scale-[1.02] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#0ea5e9]"
+        >
+          <Logo variant="full" priority />
         </Link>
 
-        {/* Desktop Menu Tabs (Apple Pill + Active Neon Strip) */}
-        <div className="hidden md:flex items-center gap-1 bg-slate-950/50 p-1 rounded-full border border-slate-800/60">
-          {navLinks.map((link) => {
-            const Icon = link.icon;
-            const isActive =
-              link.href === "/"
-                ? pathname === "/"
-                : pathname.startsWith(link.href);
-
-            return (
-              <Link
-                key={link.href}
-                href={link.href}
-                className={`relative px-4 py-1.5 rounded-full text-xs font-bold transition-all duration-300 flex items-center gap-2 group ${
-                  isActive
-                    ? "text-white bg-slate-800/80 shadow-inner"
-                    : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/40"
-                }`}
-              >
-                <Icon
-                  className={`w-3.5 h-3.5 transition-colors ${
-                    isActive ? "text-[#0ea5e9]" : "text-slate-500 group-hover:text-slate-300"
-                  }`}
-                />
-                <span>{link.name}</span>
-
-                {/* Active Indicator Underline Strip */}
-                {isActive && (
-                  <span className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-5 h-[2px] bg-gradient-to-r from-[#0ea5e9] to-[#f97316] rounded-full shadow-[0_0_8px_#0ea5e9]" />
-                )}
-              </Link>
-            );
-          })}
-        </div>
-
-        {/* Action Button & API Indicator */}
-        <div className="hidden md:flex items-center gap-3 pr-1">
+        {/* ---------- Menu desktop ---------- */}
+        <div className="hidden items-center gap-1 md:flex">
           <Link
-            href="/settings"
-            className={`px-3.5 py-1.5 rounded-full border text-xs font-bold flex items-center gap-2 transition-all active:scale-95 ${
-              pathname === "/settings"
-                ? "bg-[#0ea5e9]/20 border-[#0ea5e9] text-white shadow-lg shadow-[#0ea5e9]/20"
-                : "bg-slate-900 border-slate-800 text-slate-300 hover:border-slate-700 hover:bg-slate-800"
+            href="/"
+            aria-current={homeActive ? "page" : undefined}
+            className={`group relative px-3 py-2 text-[13px] font-medium transition-colors ${
+              homeActive ? "text-white" : "text-slate-400 hover:text-white"
             }`}
           >
-            <Key className="w-3.5 h-3.5 text-[#0ea5e9]" />
-            <span>API Roblox</span>
-            
-            {/* Status Dot */}
-            <span className="relative flex h-2 w-2 ml-1">
-              {hasApiKey ? (
-                <>
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-                </>
-              ) : (
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
-              )}
-            </span>
+            Beranda
+            <span className={underline(homeActive)} />
           </Link>
+
+          {/* Tools + dropdown */}
+          <div className="relative" onMouseEnter={openTools} onMouseLeave={scheduleCloseTools}>
+            <button
+              type="button"
+              aria-haspopup="true"
+              aria-expanded={toolsOpen}
+              onClick={(e) => {
+                // klik mouse = buka (hover sudah buka); Enter/Space keyboard = toggle
+                setToolsPath(toolsOpen && e.detail === 0 ? null : pathname);
+              }}
+              className={`group relative flex items-center gap-1 px-3 py-2 text-[13px] font-medium transition-colors ${
+                toolsActive || toolsOpen ? "text-white" : "text-slate-400 hover:text-white"
+              }`}
+            >
+              Tools
+              <ChevronDown
+                className={`h-3 w-3 text-slate-500 transition-transform duration-200 ${
+                  toolsOpen ? "rotate-180 text-slate-300" : ""
+                }`}
+              />
+              <span className={underline(toolsActive || toolsOpen)} />
+            </button>
+
+            {toolsOpen && (
+              <div className="nav-pop absolute left-1/2 top-full z-50 w-[min(34rem,calc(100vw-2rem))] -translate-x-1/2 pt-3">
+                <div className="rounded-3xl border border-white/10 bg-[#0d131f]/95 p-3 shadow-2xl backdrop-blur-2xl">
+                  <div className="grid grid-cols-2 gap-1">
+                    {LIVE_TOOLS.map((tool) => {
+                      const Icon = tool.icon;
+                      const active = pathname.startsWith(tool.href);
+                      return (
+                        <Link
+                          key={tool.id}
+                          href={tool.href}
+                          onClick={() => setToolsPath(null)}
+                          className={`group flex items-start gap-3 rounded-2xl p-3 transition-colors ${
+                            active ? "bg-[#0ea5e9]/10" : "hover:bg-white/[0.05]"
+                          }`}
+                        >
+                          <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-slate-700/60 bg-[#080b11] group-hover:border-[#0ea5e9]/40">
+                            <Icon className="h-4 w-4 text-[#0ea5e9]" />
+                          </span>
+                          <span className="min-w-0">
+                            <span className="block text-[13px] font-semibold text-white">{tool.title}</span>
+                            <span className="block truncate text-[11px] text-slate-400">{tool.short}</span>
+                          </span>
+                        </Link>
+                      );
+                    })}
+                  </div>
+                  <Link
+                    href="/tools"
+                    onClick={() => setToolsPath(null)}
+                    className="mt-2 flex items-center justify-between rounded-2xl border border-slate-800 bg-[#080b11]/70 px-4 py-2.5 text-xs font-semibold text-slate-300 transition-colors hover:text-white"
+                  >
+                    Lihat semua tools
+                    <ArrowRight className="h-3.5 w-3.5 text-[#f97316]" />
+                  </Link>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
 
-        {/* Mobile Toggle Button */}
-        <button
-          onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-          className="md:hidden p-2 rounded-full bg-slate-900 text-slate-300 hover:text-white border border-slate-800"
-        >
-          {mobileMenuOpen ? <X className="w-4 h-4" /> : <Menu className="w-4 h-4" />}
-        </button>
+        {/* ---------- Kanan ---------- */}
+        <div className="flex items-center gap-2">
+          {SHOW_LOGIN ? (
+            <Link
+              href="/login"
+              className="hidden rounded-full border border-slate-700 bg-slate-900 px-4 py-1.5 text-xs font-bold text-white transition-colors hover:border-slate-600 hover:bg-slate-800 md:inline-flex"
+            >
+              Masuk
+            </Link>
+          ) : (
+            <span className="hidden rounded-full border border-[#f97316]/30 bg-[#f97316]/10 px-2.5 py-1 font-mono text-[10px] font-bold tracking-widest text-[#f97316] md:inline-flex">
+              BETA
+            </span>
+          )}
+
+          <button
+            type="button"
+            aria-label={mobileOpen ? "Tutup menu" : "Buka menu"}
+            aria-expanded={mobileOpen}
+            onClick={() => setMobilePath(mobileOpen ? null : pathname)}
+            className="rounded-full border border-slate-800 bg-slate-900 p-2 text-slate-300 transition-colors hover:text-white md:hidden"
+          >
+            {mobileOpen ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
+          </button>
+        </div>
       </nav>
 
-      {/* Mobile Drawer Menu */}
-      {mobileMenuOpen && (
-        <div className="md:hidden mt-2 p-4 rounded-3xl bg-[#0d131f]/95 border border-slate-800/80 backdrop-blur-2xl shadow-2xl space-y-2 animate-in fade-in slide-in-from-top-2">
-          {navLinks.map((link) => {
-            const Icon = link.icon;
-            const isActive =
-              link.href === "/"
-                ? pathname === "/"
-                : pathname.startsWith(link.href);
+      {/* ---------- Drawer mobile ---------- */}
+      {mobileOpen && (
+        <div className="nav-pop mt-2 max-h-[70vh] overflow-y-auto rounded-3xl border border-white/10 bg-[#0d131f]/95 p-3 shadow-2xl backdrop-blur-2xl md:hidden">
+          <Link
+            href="/"
+            onClick={() => setMobilePath(null)}
+            className={`block rounded-2xl px-4 py-3 text-[13px] font-semibold ${
+              homeActive ? "bg-[#0ea5e9]/10 text-[#0ea5e9]" : "text-slate-300 hover:bg-white/[0.05]"
+            }`}
+          >
+            Beranda
+          </Link>
 
+          <p className="px-4 pb-1 pt-3 font-mono text-[10px] uppercase tracking-widest text-slate-500">Tools</p>
+          {LIVE_TOOLS.map((tool) => {
+            const Icon = tool.icon;
+            const active = pathname.startsWith(tool.href);
             return (
               <Link
-                key={link.href}
-                onClick={() => setMobileMenuOpen(false)}
-                href={link.href}
-                className={`flex items-center gap-3 px-4 py-3 rounded-2xl text-xs font-bold transition-all ${
-                  isActive
-                    ? "bg-[#0ea5e9]/10 text-[#0ea5e9] border border-[#0ea5e9]/20"
-                    : "text-slate-400 hover:bg-slate-900 hover:text-slate-200"
+                key={tool.id}
+                href={tool.href}
+                onClick={() => setMobilePath(null)}
+                className={`flex items-center gap-3 rounded-2xl px-4 py-2.5 text-[13px] font-medium ${
+                  active ? "bg-[#0ea5e9]/10 text-[#0ea5e9]" : "text-slate-300 hover:bg-white/[0.05]"
                 }`}
               >
-                <Icon className="w-4 h-4" />
-                <span>{link.name}</span>
+                <Icon className="h-4 w-4 shrink-0 text-[#0ea5e9]" />
+                {tool.title}
               </Link>
             );
           })}
 
-          <div className="pt-2 border-t border-slate-800/80">
+          <Link
+            href="/tools"
+            onClick={() => setMobilePath(null)}
+            className="mt-2 flex items-center justify-between rounded-2xl border border-slate-800 bg-[#080b11]/70 px-4 py-3 text-xs font-semibold text-slate-300"
+          >
+            Lihat semua tools
+            <ArrowRight className="h-3.5 w-3.5 text-[#f97316]" />
+          </Link>
+
+          {SHOW_LOGIN && (
             <Link
-              onClick={() => setMobileMenuOpen(false)}
-              href="/settings"
-              className="flex items-center justify-between px-4 py-3 rounded-2xl bg-slate-900 border border-slate-800 text-xs font-bold text-slate-200"
+              href="/login"
+              onClick={() => setMobilePath(null)}
+              className="mt-2 block rounded-2xl bg-white px-4 py-3 text-center text-xs font-bold text-black"
             >
-              <div className="flex items-center gap-2">
-                <Key className="w-4 h-4 text-[#0ea5e9]" />
-                <span>Pengaturan API Roblox</span>
-              </div>
-              <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-slate-800 text-slate-400">
-                {hasApiKey ? "Siap" : "Belum Set"}
-              </span>
+              Masuk
             </Link>
-          </div>
+          )}
         </div>
       )}
     </header>
