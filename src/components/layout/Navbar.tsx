@@ -7,8 +7,8 @@ import { ChevronDown, Menu, X, ArrowRight } from "lucide-react";
 import Logo from "@/components/brand/Logo";
 import { LIVE_TOOLS } from "@/lib/tools";
 
-// Nyalakan kalau halaman /login sudah ada (Fase 2b).
-const SHOW_LOGIN = false;
+// Aktifkan tombol login karena halaman /login sudah siap (Fase 2b)
+const SHOW_LOGIN = true;
 
 export default function Navbar() {
   const pathname = usePathname();
@@ -143,7 +143,6 @@ export default function Navbar() {
               aria-haspopup="true"
               aria-expanded={toolsOpen}
               onClick={(e) => {
-                // klik mouse = buka (hover sudah buka); Enter/Space keyboard = toggle
                 setToolsPath(toolsOpen && e.detail === 0 ? null : pathname);
               }}
               className={`group relative flex items-center gap-1 px-3 py-2 text-[13px] font-medium transition-colors ${
@@ -204,11 +203,11 @@ export default function Navbar() {
         <div className="flex items-center gap-2">
           {SHOW_LOGIN ? (
             <Link
-  href="/login"
-  className="px-4 py-2 rounded-xl bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-600 hover:to-blue-700 text-xs font-mono font-bold text-white shadow-lg shadow-sky-500/20 transition-all flex items-center gap-2"
->
-  Masuk
-</Link>
+              href="/login"
+              className="px-4 py-2 rounded-xl bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-600 hover:to-blue-700 text-xs font-mono font-bold text-white shadow-lg shadow-sky-500/20 transition-all flex items-center gap-2"
+            >
+              Masuk
+            </Link>
           ) : (
             <span className="hidden rounded-full border border-[#f97316]/30 bg-[#f97316]/10 px-2.5 py-1 font-mono text-[10px] font-bold tracking-widest text-[#f97316] md:inline-flex">
               BETA
@@ -272,7 +271,7 @@ export default function Navbar() {
             <Link
               href="/login"
               onClick={() => setMobilePath(null)}
-              className="mt-2 block rounded-2xl bg-white px-4 py-3 text-center text-xs font-bold text-black"
+              className="mt-2 block rounded-2xl bg-gradient-to-r from-sky-500 to-blue-600 px-4 py-3 text-center text-xs font-mono font-bold text-white shadow-lg shadow-sky-500/20"
             >
               Masuk
             </Link>
