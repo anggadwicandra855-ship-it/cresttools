@@ -2,12 +2,13 @@
 
 import React, { useState, useRef, useEffect } from "react";
 import Link from "next/link";
+import Navbar from "@/components/layout/Navbar";
 import SkyboxPreview from "@/components/skybox/SkyboxPreview";
 import JSZip from "jszip";
-import { loadRobloxCredentials } from "@/lib/robloxCredentials";
 import {
   convertEquirectToSkybox,
   applyFaceConfig,
+  generateTestPanorama,
   DEFAULT_FACE_CONFIG,
   NEUTRAL_FACE_CONFIG,
   SkyboxFace,
@@ -32,6 +33,7 @@ import {
   Sliders,
   Layers,
   Wand2,
+  FlaskConical,
   RotateCcw,
   CheckCircle2,
   XCircle,
@@ -128,6 +130,9 @@ const FACE_LIST: { key: SkyboxFace; label: string }[] = [
   { key: "bk", label: "SkyboxBk" },
 ];
 
+// Tag versi: tampil di layar + console, buat mastiin build terbaru yang jalan.
+const BUILD_TAG = "build v4.1";
+
 // v2: default baru (mapping hasil tes Studio). Key lama diabaikan.
 const FACE_CONFIG_KEY = "crest_skybox_face_config_v2";
 
@@ -155,17 +160,14 @@ const emptyStatus = (): Record<SkyboxFace, FaceUploadStatus> => ({
 const cloneConfig = (cfg: Record<SkyboxFace, FaceConfig>): Record<SkyboxFace, FaceConfig> =>
   JSON.parse(JSON.stringify(cfg));
 
-// Script Luau siap pakai. IDs = ID slot Roblox (penukaran slot sudah terjadi sebelum upload).
-// withResolve = true cuma kalau ada asset bertipe Decal (ID perlu diubah jadi ID gambar).
-const buildLua = (ids: Record<SkyboxFace, string>, withResolve: boolean) => {
-  const header = `-- Crest Tools - Skybox (siap pakai)
+// Script Luau siap pakai. IDs = ID slot Roblox (sudah benar karena swap terjadi sebelum upload).
+const buildLua = (ids: Record<SkyboxFace, string>) => `-- Crest Tools - Skybox (siap pakai)
 -- Cara pakai: Studio > View > Command Bar > paste > Enter.
 -- (Kalau dijadikan Script biasa, Sky cuma kebentuk saat Play.)
 
 local Lighting = game:GetService("Lighting")
-`;
+local InsertService = game:GetService("InsertService")
 
-  const idTable = `
 local IDS = {
   Bk = ${ids.bk},
   Dn = ${ids.dn},
@@ -174,13 +176,9 @@ local IDS = {
   Rt = ${ids.rt},
   Up = ${ids.up},
 }
-`;
 
-  const resolver = withResolve
-    ? `
-local InsertService = game:GetService("InsertService")
-
--- ID bertipe Decal -> ambil ID gambar aslinya. Gagal = pakai ID apa adanya.
+-- Kalau ID bertipe Decal, ambil ID gambar aslinya.
+-- Kalau gagal / sudah ID gambar, pakai ID apa adanya.
 local function resolve(id)
   local ok, model = pcall(function()
     return InsertService:LoadAsset(id)
@@ -195,14 +193,7 @@ local function resolve(id)
   end
   return "rbxassetid://" .. id
 end
-`
-    : `
-local function resolve(id)
-  return "rbxassetid://" .. id
-end
-`;
 
-  const body = `
 -- Hapus Sky lama biar ga tabrakan
 for _, child in ipairs(Lighting:GetChildren()) do
   if child:IsA("Sky") then
@@ -231,9 +222,6 @@ end
 sky.Parent = Lighting
 print("[CrestSky] Sky terpasang!")
 `;
-
-  return header + idTable + resolver + body;
-};
 
 const getAndClearIndexedDB = (): Promise<string | null> => {
   return new Promise((resolve) => {
@@ -303,6 +291,10 @@ export default function SkyboxConverterPage() {
 
   const convertReqRef = useRef(0);
   const exportReqRef = useRef(0);
+
+  useEffect(() => {
+    console.log(`[CrestTools] Skybox page ${BUILD_TAG}`);
+  }, []);
 
   // ---------- Load konfigurasi tersimpan ----------
   useEffect(() => {
@@ -404,13 +396,25 @@ export default function SkyboxConverterPage() {
     return exportFaces;
   };
 
+  const handleTestImage = () => {
+    setActiveTab("convert");
+    setYawOffset(0);
+    setSourceUrl(generateTestPanorama(4096));
+  };
+
   const handleAutoUpload = async (onlyFailed: boolean = false) => {
     const targetFaces = getTargetFaces();
     if (!targetFaces) return;
 
-    const creds = loadRobloxCredentials();
-    if (!creds) {
-      alert("Atur API Key & ID kreator dulu di Pengaturan API Roblox ya.");
+    const savedCreds = localStorage.getItem("crest_roblox_credentials");
+    if (!savedCreds) {
+      alert("Atur API Key & User/Group ID di menu Pengaturan dulu ya, Bree!");
+      return;
+    }
+
+    const creds = JSON.parse(savedCreds);
+    if (!creds.apiKey || !creds.creatorId) {
+      alert("Credentials Roblox belum lengkap. Cek /settings dulu!");
       return;
     }
 
@@ -473,10 +477,9 @@ export default function SkyboxConverterPage() {
   const uploadTouched = Object.values(uploadStatus).some((s) => s.state !== "idle");
   const hasFailed = Object.values(uploadStatus).some((s) => s.state === "error");
   const pendingModeration = Object.values(uploadStatus).some(
-    (s) => s.state === "success" && !!s.moderation && s.moderation.toUpperCase() !== "APPROVED"
+    (s) => s.state === "success" && s.moderation && s.moderation !== "APPROVED"
   );
-  const needsResolve = Object.values(uploadStatus).some((s) => s.assetType === "Decal");
-  const generatedLua = allIdsReady ? buildLua(robloxIds, needsResolve) : "";
+  const generatedLua = allIdsReady ? buildLua(robloxIds) : "";
 
   const handleZipDownload = async () => {
     const targetFaces = getTargetFaces();
@@ -504,7 +507,8 @@ export default function SkyboxConverterPage() {
   };
 
   return (
-    <div className="flex-1 bg-[#080b11] text-slate-100">
+    <div className="min-h-screen bg-[#080b11] text-slate-100">
+      <Navbar />
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
         <div className="flex items-center justify-between mb-8">
           <Link
@@ -533,6 +537,9 @@ export default function SkyboxConverterPage() {
               Skybox Converter 3D{" "}
               <span className="text-[10px] align-super px-2.5 py-1 rounded-md bg-emerald-500 text-black font-extrabold tracking-wider">
                 V10 ULTIMATE
+              </span>{" "}
+              <span className="text-[10px] align-super px-2.5 py-1 rounded-md bg-sky-500/20 text-sky-300 border border-sky-500/40 font-mono font-bold tracking-wider">
+                {BUILD_TAG}
               </span>
             </h1>
             <p className="text-sm text-slate-400">
@@ -607,6 +614,14 @@ export default function SkyboxConverterPage() {
                   <Upload className="w-8 h-8 mx-auto mb-2 text-slate-500" />
                   <p className="text-xs font-bold">Klik Upload Panorama (Rasio 2:1)</p>
                 </div>
+
+                <button
+                  onClick={handleTestImage}
+                  className="mt-3 w-full px-4 py-2.5 rounded-xl bg-slate-900 border border-slate-800 hover:border-emerald-500/60 text-xs font-bold text-slate-200 flex items-center justify-center gap-2 transition-all"
+                >
+                  <FlaskConical className="w-4 h-4 text-emerald-400" />
+                  Generate Gambar Tes (Kalibrasi)
+                </button>
 
                 {/* HORIZON YAW ROTATION SLIDER */}
                 <div className="mt-6 pt-6 border-t border-slate-800">
@@ -722,7 +737,13 @@ export default function SkyboxConverterPage() {
                       <div className="aspect-square rounded-lg overflow-hidden border border-slate-800 mb-2">
                         <img src={exportFaces[f.key]} alt={f.label} className="w-full h-full object-cover" />
                       </div>
-                      <span className="block text-center text-xs font-mono font-bold mb-2">{f.label}</span>
+                      <span className="block text-center text-xs font-mono font-bold">Slot {f.label}</span>
+                      <span className="block text-center text-[10px] font-mono text-slate-500 mb-2">
+                        {faceConfig[f.key].source === f.key
+                          ? "isi: arah " + f.key.toUpperCase()
+                          : "← isi: arah " + faceConfig[f.key].source.toUpperCase()}
+                        {faceConfig[f.key].rotate ? ` · ${faceConfig[f.key].rotate}°` : ""}
+                      </span>
                       <button
                         onClick={() => {
                           const a = document.createElement("a");
@@ -747,12 +768,9 @@ export default function SkyboxConverterPage() {
 
             {/* PANEL PENYESUAIAN SLOT ROBLOX */}
             {idealFaces && (
-              <details className="group bg-[#161f32]/80 border border-slate-800 rounded-2xl p-6 mb-8">
-                <summary className="cursor-pointer select-none list-none flex items-center justify-between text-xs font-mono text-slate-400">
-                  <span>4. PENGATURAN LANJUTAN — penyesuaian slot Roblox (opsional)</span>
-                  <span className="text-[10px] text-slate-500 group-open:hidden">buka</span>
-                </summary>
-                <div className="flex flex-col sm:flex-row justify-end items-start sm:items-center gap-3 mt-4 mb-2">
+              <div className="bg-[#161f32]/80 border border-slate-800 rounded-2xl p-6 mb-8">
+                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-2">
+                  <span className="text-xs font-mono text-slate-400">4. PENYESUAIAN SLOT ROBLOX (per face)</span>
                   <div className="flex gap-2">
                     <button
                       onClick={swapLeftRight}
@@ -844,7 +862,7 @@ export default function SkyboxConverterPage() {
                     );
                   })}
                 </div>
-              </details>
+              </div>
             )}
           </>
         )}
@@ -976,6 +994,19 @@ export default function SkyboxConverterPage() {
                 <CloudUpload className="w-4 h-4 text-[#0ea5e9]" />
                 Status Upload ke Roblox
               </h4>
+              {Object.values(uploadStatus).some((s) => s.state === "success") && (
+                <span
+                  className={`text-[10px] font-mono px-2 py-1 rounded-md border ${
+                    Object.values(uploadStatus).some((s) => s.assetType)
+                      ? "text-emerald-300 border-emerald-500/40 bg-emerald-500/10"
+                      : "text-red-300 border-red-500/40 bg-red-500/10"
+                  }`}
+                >
+                  {Object.values(uploadStatus).some((s) => s.assetType)
+                    ? "route.ts: versi baru ✓"
+                    : "route.ts: VERSI LAMA (belum ke-replace)"}
+                </span>
+              )}
               {hasFailed && !isUploading && (
                 <button
                   onClick={() => handleAutoUpload(true)}
