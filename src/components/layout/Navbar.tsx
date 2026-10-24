@@ -2,31 +2,61 @@
 
 import React, { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { ChevronDown, Menu, X, ArrowRight } from "lucide-react";
+import { usePathname, useRouter } from "next/navigation";
+import { ChevronDown, Menu, X, ArrowRight, LogOut, User as UserIcon, Settings } from "lucide-react";
 import Logo from "@/components/brand/Logo";
 import { LIVE_TOOLS } from "@/lib/tools";
-
-// Aktifkan tombol login karena halaman /login sudah siap (Fase 2b)
-const SHOW_LOGIN = true;
+import { supabase } from "@/lib/supabase";
 
 export default function Navbar() {
   const pathname = usePathname();
+  const router = useRouter();
   const headerRef = useRef<HTMLElement>(null);
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const anchorY = useRef(0);
 
-  // Menu "terbuka" disimpan sebagai path tempat dia dibuka.
-  // Pindah halaman => path beda => menu otomatis tertutup (tanpa effect tambahan).
+  // States untuk Menu
   const [toolsPath, setToolsPath] = useState<string | null>(null);
   const [mobilePath, setMobilePath] = useState<string | null>(null);
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
+  
   const toolsOpen = toolsPath === pathname;
   const mobileOpen = mobilePath === pathname;
+
+  // States untuk User Session
+  const [user, setUser] = useState<any>(null);
+  const [loadingUser, setLoadingUser] = useState(true);
 
   const [scrolled, setScrolled] = useState(false);
   const [hidden, setHidden] = useState(false);
 
-  // ---------- Scroll: tipis di atas, ngumpet pas scroll turun, muncul pas scroll naik ----------
+  // ---------- Cek Sesi User (Supabase) ----------
+  useEffect(() => {
+    const getUser = async () => {
+      const { data } = await supabase.auth.getUser();
+      setUser(data.user);
+      setLoadingUser(false);
+    };
+    getUser();
+
+    // Listener kalau ada perubahan login/logout
+    const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
+      setUser(session?.user ?? null);
+    });
+
+    return () => {
+      authListener.subscription.unsubscribe();
+    };
+  }, []);
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    setUserMenuOpen(false);
+    setUser(null);
+    router.push("/login");
+  };
+
+  // ---------- Scroll Logic ----------
   useEffect(() => {
     anchorY.current = window.scrollY;
     const onScroll = () => {
@@ -49,11 +79,10 @@ export default function Navbar() {
 
   // ---------- Tutup menu: tekan Escape atau klik di luar ----------
   useEffect(() => {
-    if (!toolsOpen && !mobileOpen) return;
-
     const closeAll = () => {
       setToolsPath(null);
       setMobilePath(null);
+      setUserMenuOpen(false);
     };
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") closeAll();
@@ -67,12 +96,6 @@ export default function Navbar() {
     return () => {
       document.removeEventListener("keydown", onKey);
       document.removeEventListener("pointerdown", onPointerDown);
-    };
-  }, [toolsOpen, mobileOpen]);
-
-  useEffect(() => {
-    return () => {
-      if (closeTimer.current) clearTimeout(closeTimer.current);
     };
   }, []);
 
@@ -89,7 +112,7 @@ export default function Navbar() {
   const toolsActive = pathname.startsWith("/tools");
 
   // Jangan ngumpet kalau ada menu yang lagi kebuka
-  const hide = hidden && !toolsOpen && !mobileOpen;
+  const hide = hidden && !toolsOpen && !mobileOpen && !userMenuOpen;
 
   const underline = (active: boolean) =>
     `pointer-events-none absolute inset-x-3 -bottom-0.5 h-px origin-left bg-gradient-to-r from-[#0ea5e9] to-[#f97316] transition-transform duration-300 ${
@@ -111,13 +134,11 @@ export default function Navbar() {
             : "border-white/[0.07] bg-[#0d131f]/60 shadow-[0_8px_30px_rgba(0,0,0,0.4)]"
         }`}
       >
-        {/* highlight tipis di tepi atas (gaya kaca) */}
         <span className="pointer-events-none absolute inset-x-10 top-0 h-px bg-gradient-to-r from-transparent via-white/25 to-transparent" />
 
         {/* ---------- Brand ---------- */}
         <Link
           href="/"
-          aria-label="CrestTools — Beranda"
           className="flex items-center rounded-full pl-1 pr-2 transition-transform hover:scale-[1.02] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#0ea5e9]"
         >
           <Logo variant="full" priority />
@@ -127,7 +148,6 @@ export default function Navbar() {
         <div className="hidden items-center gap-1 md:flex">
           <Link
             href="/"
-            aria-current={homeActive ? "page" : undefined}
             className={`group relative px-3 py-2 text-[13px] font-medium transition-colors ${
               homeActive ? "text-white" : "text-slate-400 hover:text-white"
             }`}
@@ -136,25 +156,17 @@ export default function Navbar() {
             <span className={underline(homeActive)} />
           </Link>
 
-          {/* Tools + dropdown */}
+          {/* Tools */}
           <div className="relative" onMouseEnter={openTools} onMouseLeave={scheduleCloseTools}>
             <button
               type="button"
-              aria-haspopup="true"
-              aria-expanded={toolsOpen}
-              onClick={(e) => {
-                setToolsPath(toolsOpen && e.detail === 0 ? null : pathname);
-              }}
+              onClick={(e) => setToolsPath(toolsOpen && e.detail === 0 ? null : pathname)}
               className={`group relative flex items-center gap-1 px-3 py-2 text-[13px] font-medium transition-colors ${
                 toolsActive || toolsOpen ? "text-white" : "text-slate-400 hover:text-white"
               }`}
             >
               Tools
-              <ChevronDown
-                className={`h-3 w-3 text-slate-500 transition-transform duration-200 ${
-                  toolsOpen ? "rotate-180 text-slate-300" : ""
-                }`}
-              />
+              <ChevronDown className={`h-3 w-3 text-slate-500 transition-transform duration-200 ${toolsOpen ? "rotate-180 text-slate-300" : ""}`} />
               <span className={underline(toolsActive || toolsOpen)} />
             </button>
 
@@ -170,9 +182,7 @@ export default function Navbar() {
                           key={tool.id}
                           href={tool.href}
                           onClick={() => setToolsPath(null)}
-                          className={`group flex items-start gap-3 rounded-2xl p-3 transition-colors ${
-                            active ? "bg-[#0ea5e9]/10" : "hover:bg-white/[0.05]"
-                          }`}
+                          className={`group flex items-start gap-3 rounded-2xl p-3 transition-colors ${active ? "bg-[#0ea5e9]/10" : "hover:bg-white/[0.05]"}`}
                         >
                           <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-slate-700/60 bg-[#080b11] group-hover:border-[#0ea5e9]/40">
                             <Icon className="h-4 w-4 text-[#0ea5e9]" />
@@ -185,11 +195,7 @@ export default function Navbar() {
                       );
                     })}
                   </div>
-                  <Link
-                    href="/tools"
-                    onClick={() => setToolsPath(null)}
-                    className="mt-2 flex items-center justify-between rounded-2xl border border-slate-800 bg-[#080b11]/70 px-4 py-2.5 text-xs font-semibold text-slate-300 transition-colors hover:text-white"
-                  >
+                  <Link href="/tools" onClick={() => setToolsPath(null)} className="mt-2 flex items-center justify-between rounded-2xl border border-slate-800 bg-[#080b11]/70 px-4 py-2.5 text-xs font-semibold text-slate-300 transition-colors hover:text-white">
                     Lihat semua tools
                     <ArrowRight className="h-3.5 w-3.5 text-[#f97316]" />
                   </Link>
@@ -199,25 +205,67 @@ export default function Navbar() {
           </div>
         </div>
 
-        {/* ---------- Kanan ---------- */}
+        {/* ---------- Kanan (Auth & Mobile Toggle) ---------- */}
         <div className="flex items-center gap-2">
-          {SHOW_LOGIN ? (
-            <Link
-              href="/login"
-              className="px-4 py-2 rounded-xl bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-600 hover:to-blue-700 text-xs font-mono font-bold text-white shadow-lg shadow-sky-500/20 transition-all flex items-center gap-2"
-            >
-              Masuk
-            </Link>
-          ) : (
-            <span className="hidden rounded-full border border-[#f97316]/30 bg-[#f97316]/10 px-2.5 py-1 font-mono text-[10px] font-bold tracking-widest text-[#f97316] md:inline-flex">
-              BETA
-            </span>
+          {!loadingUser && (
+            user ? (
+              <div className="relative hidden md:block">
+                <button
+                  onClick={() => setUserMenuOpen(!userMenuOpen)}
+                  className="flex items-center gap-2 rounded-full border border-slate-700/60 bg-slate-900/60 p-1 pr-3 transition-colors hover:bg-slate-800 hover:border-slate-600"
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img 
+                    src={user.user_metadata?.avatar_url || "https://api.dicebear.com/7.x/avataaars/svg?seed=fallback"} 
+                    alt="Avatar" 
+                    className="h-7 w-7 rounded-full bg-slate-800 object-cover" 
+                  />
+                  <span className="text-[11px] font-semibold text-slate-200 font-mono">
+                    {user.user_metadata?.full_name?.split(" ")[0] || "Dev"}
+                  </span>
+                  <ChevronDown className="h-3 w-3 text-slate-400" />
+                </button>
+
+                {/* Dropdown User */}
+                {userMenuOpen && (
+                  <div className="absolute right-0 top-full mt-3 w-60 rounded-2xl border border-white/10 bg-[#0d131f]/95 p-2 shadow-2xl backdrop-blur-xl">
+                    <div className="px-3 py-3 border-b border-slate-800/80 mb-2">
+                      <p className="text-[13px] font-bold text-white truncate">
+                        {user.user_metadata?.full_name || "Developer"}
+                      </p>
+                      <p className="text-[10px] text-slate-400 truncate">{user.email}</p>
+                      <div className="mt-3 inline-flex items-center rounded-full bg-sky-500/10 px-2 py-0.5 border border-sky-500/20 text-[9px] font-mono font-bold tracking-widest text-sky-400">
+                        FREE TIER
+                      </div>
+                    </div>
+                    
+                    <Link href="/profile" onClick={() => setUserMenuOpen(false)} className="flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-medium text-slate-300 hover:bg-white/[0.05] hover:text-white">
+                      <UserIcon className="h-4 w-4 text-sky-400" /> Profil Saya
+                    </Link>
+                    <Link href="/settings" onClick={() => setUserMenuOpen(false)} className="flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-medium text-slate-300 hover:bg-white/[0.05] hover:text-white">
+                      <Settings className="h-4 w-4 text-slate-400" /> Pengaturan
+                    </Link>
+                    
+                    <div className="my-1 border-t border-slate-800/80"></div>
+                    
+                    <button onClick={handleLogout} className="w-full flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-medium text-red-400 hover:bg-red-500/10 transition-colors">
+                      <LogOut className="h-4 w-4" /> Keluar
+                    </button>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <Link
+                href="/login"
+                className="hidden md:flex px-4 py-2 rounded-xl bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-600 hover:to-blue-700 text-xs font-mono font-bold text-white shadow-lg shadow-sky-500/20 transition-all items-center gap-2"
+              >
+                Masuk
+              </Link>
+            )
           )}
 
           <button
             type="button"
-            aria-label={mobileOpen ? "Tutup menu" : "Buka menu"}
-            aria-expanded={mobileOpen}
             onClick={() => setMobilePath(mobileOpen ? null : pathname)}
             className="rounded-full border border-slate-800 bg-slate-900 p-2 text-slate-300 transition-colors hover:text-white md:hidden"
           >
@@ -228,14 +276,25 @@ export default function Navbar() {
 
       {/* ---------- Drawer mobile ---------- */}
       {mobileOpen && (
-        <div className="nav-pop mt-2 max-h-[70vh] overflow-y-auto rounded-3xl border border-white/10 bg-[#0d131f]/95 p-3 shadow-2xl backdrop-blur-2xl md:hidden">
-          <Link
-            href="/"
-            onClick={() => setMobilePath(null)}
-            className={`block rounded-2xl px-4 py-3 text-[13px] font-semibold ${
-              homeActive ? "bg-[#0ea5e9]/10 text-[#0ea5e9]" : "text-slate-300 hover:bg-white/[0.05]"
-            }`}
-          >
+        <div className="nav-pop mt-2 max-h-[80vh] overflow-y-auto rounded-3xl border border-white/10 bg-[#0d131f]/95 p-3 shadow-2xl backdrop-blur-2xl md:hidden">
+          {user && (
+            <div className="flex items-center gap-3 rounded-2xl bg-slate-900/60 p-3 mb-2 border border-slate-800/80">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img 
+                src={user.user_metadata?.avatar_url || "https://api.dicebear.com/7.x/avataaars/svg?seed=fallback"} 
+                alt="Avatar" 
+                className="h-10 w-10 rounded-full object-cover" 
+              />
+              <div className="min-w-0">
+                <p className="text-[13px] font-bold text-white truncate">{user.user_metadata?.full_name}</p>
+                <div className="mt-1 inline-flex items-center rounded-full bg-sky-500/10 px-2 py-0.5 border border-sky-500/20 text-[9px] font-mono font-bold tracking-widest text-sky-400">
+                  FREE TIER
+                </div>
+              </div>
+            </div>
+          )}
+
+          <Link href="/" onClick={() => setMobilePath(null)} className={`block rounded-2xl px-4 py-3 text-[13px] font-semibold ${homeActive ? "bg-[#0ea5e9]/10 text-[#0ea5e9]" : "text-slate-300 hover:bg-white/[0.05]"}`}>
             Beranda
           </Link>
 
@@ -244,35 +303,34 @@ export default function Navbar() {
             const Icon = tool.icon;
             const active = pathname.startsWith(tool.href);
             return (
-              <Link
-                key={tool.id}
-                href={tool.href}
-                onClick={() => setMobilePath(null)}
-                className={`flex items-center gap-3 rounded-2xl px-4 py-2.5 text-[13px] font-medium ${
-                  active ? "bg-[#0ea5e9]/10 text-[#0ea5e9]" : "text-slate-300 hover:bg-white/[0.05]"
-                }`}
-              >
+              <Link key={tool.id} href={tool.href} onClick={() => setMobilePath(null)} className={`flex items-center gap-3 rounded-2xl px-4 py-2.5 text-[13px] font-medium ${active ? "bg-[#0ea5e9]/10 text-[#0ea5e9]" : "text-slate-300 hover:bg-white/[0.05]"}`}>
                 <Icon className="h-4 w-4 shrink-0 text-[#0ea5e9]" />
                 {tool.title}
               </Link>
             );
           })}
 
-          <Link
-            href="/tools"
-            onClick={() => setMobilePath(null)}
-            className="mt-2 flex items-center justify-between rounded-2xl border border-slate-800 bg-[#080b11]/70 px-4 py-3 text-xs font-semibold text-slate-300"
-          >
+          <Link href="/tools" onClick={() => setMobilePath(null)} className="mt-2 flex items-center justify-between rounded-2xl border border-slate-800 bg-[#080b11]/70 px-4 py-3 text-xs font-semibold text-slate-300">
             Lihat semua tools
             <ArrowRight className="h-3.5 w-3.5 text-[#f97316]" />
           </Link>
 
-          {SHOW_LOGIN && (
-            <Link
-              href="/login"
-              onClick={() => setMobilePath(null)}
-              className="mt-2 block rounded-2xl bg-gradient-to-r from-sky-500 to-blue-600 px-4 py-3 text-center text-xs font-mono font-bold text-white shadow-lg shadow-sky-500/20"
-            >
+          <div className="my-2 border-t border-slate-800/80"></div>
+
+          {user ? (
+            <>
+              <Link href="/profile" onClick={() => setMobilePath(null)} className="flex items-center gap-3 rounded-2xl px-4 py-3 text-[13px] font-medium text-slate-300 hover:bg-white/[0.05]">
+                <UserIcon className="h-4 w-4 text-sky-400" /> Profil Saya
+              </Link>
+              <Link href="/settings" onClick={() => setMobilePath(null)} className="flex items-center gap-3 rounded-2xl px-4 py-3 text-[13px] font-medium text-slate-300 hover:bg-white/[0.05]">
+                <Settings className="h-4 w-4 text-slate-400" /> Pengaturan
+              </Link>
+              <button onClick={handleLogout} className="mt-1 w-full flex items-center gap-3 rounded-2xl px-4 py-3 text-[13px] font-medium text-red-400 hover:bg-red-500/10">
+                <LogOut className="h-4 w-4" /> Keluar
+              </button>
+            </>
+          ) : (
+            <Link href="/login" onClick={() => setMobilePath(null)} className="mt-2 block rounded-2xl bg-gradient-to-r from-sky-500 to-blue-600 px-4 py-3 text-center text-xs font-mono font-bold text-white shadow-lg shadow-sky-500/20">
               Masuk
             </Link>
           )}
